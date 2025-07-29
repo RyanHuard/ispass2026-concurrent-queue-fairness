@@ -1,0 +1,79 @@
+#pragma once
+
+#include <atomic>
+
+//template <typename T> struct MSNode;
+
+template <typename T>
+struct MSPointer {
+  MSNode<T>* ptr;
+  unsigned int count;
+
+  MSPointer() : ptr(nullptr), count(0) {}
+};
+
+template <typename T>
+struct MSNode {
+  T value;
+  std::atomic<MSPointer<T>> next;
+
+  MSNode()
+    : next(MSPointer<T>()) {}
+  MSNode(const T val) : value(val), next(MSPointer<T>()) {}             
+};
+
+template <typename T>
+class MSQueue {
+private:
+  std::atomic<MSPointer<T>> head;
+  std::atomic<MSPointer<T>> tail;
+
+public:
+  MSQueue() {
+    auto* dummy_node = new MSNode<T>();
+    auto* dummy_pointer = new MSPointer<T>();
+    dummy_node->next.store(dummy_pointer);
+    head.store(dummy_pointer);
+    tail.store(dummy_pointer);
+  }
+
+  ~MSQueue() {
+    while (dequeue()) delete head.load();
+  }
+
+  void enqueue(T value) {
+    auto* node = new MSNode<T>();
+    node->value = value;
+    node->next.store(MSPointer<T>());
+
+    MSPointer<T> cur_tail;
+    MSPointer<T> next;
+
+    while (true) {
+      cur_tail = tail.load();
+      next = cur_tail.ptr->next.load();
+
+      if (cur_tail == tail.load()) {
+	if (next.ptr == nullptr) {
+	  MSPointer<T> new_element(node, next.count+1);
+	  if (cur_tail.ptr->next.compare_exchange_weak(next, new_element)) {
+	    break;
+	  }
+	}
+	else {
+	  MSPointer<T> new_tail(next.ptr, cur_tail.count + 1);
+	  tail.compare_exchange_weak(cur_tail, new_tail);
+	}
+      }
+    }
+    MSPointer<T> new_tail(node, tail.count + 1);
+    tail.compare_exchange_weak(cur_tail, new_tail);
+  }
+
+  bool dequeue(T& value) {
+    MSPointer<T> head;
+   
+  }
+  
+  
+};
