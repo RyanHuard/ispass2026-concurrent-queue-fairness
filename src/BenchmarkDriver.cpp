@@ -3,24 +3,29 @@
 #include <iostream>
 
 #include "msqueue.hpp"
+#include "../include/FairnessLogger.hpp"
+#include "../include/clocks/HighResolutionClock.hpp"
+
 
 int main(int argc, char *argv[]) {
   const int num_threads = 8;
   const int num_ops = 1'000'000;
 
-  
+ 
   
   for (int num_threads = 1; num_threads <= 16; ++num_threads) {
-    MSQueue<int> q;
+    FairnessLogger lg;
+    HighResolutionClock cl;
+    MSQueue<int> q(lg, cl);
     int num_ops_per_thread = num_ops / num_threads;
     
     auto start = std::chrono::high_resolution_clock::now();
 
     auto worker = [&](int tid) {
         for (int i = 0; i < num_ops_per_thread; ++i) {
-            q.enqueue(i);
-            int value;
-            q.dequeue(&value);
+	  q.enqueue(i, tid);
+          int value;
+          q.dequeue(&value);
         }
     };
 
@@ -34,4 +39,5 @@ int main(int argc, char *argv[]) {
     std::cout << "Threads: " << num_threads
               << "  Time (ms): " << duration << std::endl;
   }
+  
 }

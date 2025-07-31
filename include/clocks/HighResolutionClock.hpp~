@@ -1,0 +1,14 @@
+#pragma once
+
+#include "IClock.hpp"
+#include <chrono>
+
+class HighResolutionClock : public IClock {
+public:
+  using namespace std::chrono;
+  double now() override {
+    auto time = high_resolution_clock::now();
+    auto ns = duration_cast<nanoseconds>(time.time_since_epoch)).count();
+    return ns;
+  }
+};

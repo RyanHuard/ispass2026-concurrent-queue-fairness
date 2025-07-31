@@ -1,6 +1,10 @@
 #include <atomic>
 
+#include "FairnessMetric.hpp"
 #include "IQueue.hpp"
+#include "InstrumentedNode.hpp"
+#include "FairnessLogger.hpp"
+#include "IClock.hpp"
 
 template <typename T>
 struct MSNode;
@@ -18,11 +22,11 @@ struct MSPointer {
 };
 
 template <typename T>
-struct MSNode {
+struct MSNode : public InstrumentedNode {
   T value;
   std::atomic<MSPointer<T>> next;
-  MSNode() : next(MSPointer<T>{nullptr, 0}) {}
-  MSNode(const T& v) : value(v), next(MSPointer<T>{nullptr, 0}) {}
+  MSNode() : next(MSPointer<T>()) {}
+  MSNode(const T& v) : value(v), next(MSPointer<T>()) {}
 };
 
 template <typename T>
@@ -32,7 +36,7 @@ private:
   std::atomic<MSPointer<T>> tail;
 
 public:
-  MSQueue() {
+  MSQueue(FairnessLogger& lg, IClock& cl) : IQueue<T>(lg, cl) {
     auto* dummy_node = new MSNode<T>();
     MSPointer<T> dummy_pointer(dummy_node, 0);
     head.store(dummy_pointer);
@@ -46,10 +50,15 @@ public:
     delete final.ptr;
   }
 
-  void enqueue(const T value) {
-    auto* node = new MSNode<T>;
-    node->value = value;
-    node->next.store(MSPointer<T>(nullptr, 0));
+  void enqueue(const T value, int tid) {
+    auto* node = new MSNode<T>(value);
+
+    if (this->logger.is_enabled(FairnessMetric::ENQUEUE_CALL)) {
+      double call_ts = this->clock.now();
+      node->call_ts = call_ts;
+    }
+
+    node->tid = tid;
 
     MSPointer<T> cur_tail;
     MSPointer<T> next;
@@ -62,6 +71,10 @@ public:
 	if (next.ptr == nullptr) {
 	  MSPointer new_element(node, next.count + 1);
 	  if (cur_tail.ptr->next.compare_exchange_weak(next, new_element)) {
+	    if (this->logger.is_enabled(FairnessMetric::ENQUEUE_IN)) {
+	      double in_ts = this->clock.now();
+	      node->in_ts = in_ts;
+	    }
 	    break;
 	  }
 	}
@@ -73,6 +86,7 @@ public:
     }
     MSPointer<T> new_tail(node, cur_tail.count + 1);
     tail.compare_exchange_weak(cur_tail, new_tail);
+    this->logger.log_enqueue(node->tid, node->call_ts, node->in_ts);
   }
 
   bool dequeue(T* value) {
@@ -96,11 +110,18 @@ public:
 	else {
 	  if (next.ptr == nullptr) continue;
 	  *value = next.ptr->value;
+
+	  if (this->logger.is_enabled(FairnessMetric::DEQUEUE)) {
+	    double deq_ts = this->clock.now();
+            this->logger.log_dequeue(next.ptr->tid, deq_ts);
+           }
+	  
 	  MSPointer<T> new_head(next.ptr, cur_head.count + 1);
 	  if (head.compare_exchange_weak(cur_head, new_head)) break;
 	}
       }
     }
+    
     delete cur_head.ptr;
     return true;
   }
