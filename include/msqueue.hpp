@@ -1,10 +1,14 @@
 #include <atomic>
 
-#include "FairnessMetric.hpp"
+#include "FairnessMetrics.hpp"
 #include "IQueue.hpp"
 #include "InstrumentedNode.hpp"
 #include "FairnessLogger.hpp"
 #include "IClock.hpp"
+
+std::mutex mtx;
+
+
 
 template <typename T>
 struct MSNode;
@@ -36,11 +40,13 @@ private:
   std::atomic<MSPointer<T>> tail;
 
 public:
+  std::vector<std::tuple<int,double,double,double>> records;
   MSQueue(FairnessLogger& lg, IClock& cl) : IQueue<T>(lg, cl) {
     auto* dummy_node = new MSNode<T>();
     MSPointer<T> dummy_pointer(dummy_node, 0);
     head.store(dummy_pointer);
     tail.store(dummy_pointer);
+    records.reserve(12000);
   }
 
   ~MSQueue() {
@@ -51,12 +57,16 @@ public:
   }
 
   void enqueue(const T value, int tid) {
+    double call_ts = std::chrono::high_resolution_clock::now()
+             .time_since_epoch()
+             .count();
     auto* node = new MSNode<T>(value);
 
-    if (this->logger.is_enabled(FairnessMetric::ENQUEUE_CALL)) {
-      double call_ts = this->clock.now();
-      node->call_ts = call_ts;
-    }
+    //if (this->logger.is_enabled(FairnessMetric::ENQUEUE_CALL)) {
+  
+    node->call_ts = call_ts;
+    //node->call_ts = std::chrono::duration<double>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+      // }
 
     node->tid = tid;
 
@@ -71,10 +81,12 @@ public:
 	if (next.ptr == nullptr) {
 	  MSPointer new_element(node, next.count + 1);
 	  if (cur_tail.ptr->next.compare_exchange_weak(next, new_element)) {
-	    if (this->logger.is_enabled(FairnessMetric::ENQUEUE_IN)) {
-	      double in_ts = this->clock.now();
-	      node->in_ts = in_ts;
-	    }
+	    // if (this->logger.is_enabled(FairnessMetric::ENQUEUE_IN)) {
+	    double in_ts = std::chrono::high_resolution_clock::now()
+             .time_since_epoch()
+             .count();
+	    node->in_ts = in_ts;
+	      //   }
 	    break;
 	  }
 	}
@@ -86,7 +98,7 @@ public:
     }
     MSPointer<T> new_tail(node, cur_tail.count + 1);
     tail.compare_exchange_weak(cur_tail, new_tail);
-    this->logger.log_enqueue(node->tid, node->call_ts, node->in_ts);
+    // this->logger.log_enqueue(node->tid, node->call_ts, node->in_ts);
   }
 
   bool dequeue(T* value) {
@@ -111,10 +123,17 @@ public:
 	  if (next.ptr == nullptr) continue;
 	  *value = next.ptr->value;
 
-	  if (this->logger.is_enabled(FairnessMetric::DEQUEUE)) {
-	    double deq_ts = this->clock.now();
-            this->logger.log_dequeue(next.ptr->tid, deq_ts);
-           }
+	  //  if (this->logger.is_enabled(FairnessMetric::DEQUEUE)) {
+	  next.ptr->deq_ts = std::chrono::high_resolution_clock::now()
+             .time_since_epoch()
+             .count();
+	  
+	  std::lock_guard<std::mutex> lock(mtx);
+	  records.emplace_back(next.ptr->tid, next.ptr->call_ts, next.ptr->in_ts, next.ptr->deq_ts);
+	  
+	    //no,this->logger.log_dequeue(next.ptr->tid, next.ptr->call_ts, next.ptr->in_ts, next.ptr->deq_ts);
+	    // we wait until the dequeue to log everything. enqueue just records the data to the node
+	    //  }
 	  
 	  MSPointer<T> new_head(next.ptr, cur_head.count + 1);
 	  if (head.compare_exchange_weak(cur_head, new_head)) break;
