@@ -14,7 +14,7 @@ public:
     : logger(logger_), clock(clock_) {}
   
   virtual void enqueue(const T value, int tid) = 0;
-  virtual bool dequeue(T* value) = 0;
+  virtual bool dequeue(T* value, int tid) = 0;
   virtual ~IQueue() = default;
 };
 

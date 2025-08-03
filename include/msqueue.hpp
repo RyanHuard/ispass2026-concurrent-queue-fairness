@@ -50,16 +50,17 @@ public:
   }
 
   ~MSQueue() {
-    T temp;
-    while (dequeue(&temp));
-    MSPointer<T> final = head.load();
-    delete final.ptr;
+    // Walk from head and delete every node
+    MSPointer<T> cur = head.load();
+    while (cur.ptr != nullptr) {
+      MSPointer<T> next = cur.ptr->next.load();
+      delete cur.ptr;
+      cur = next;
+    }
   }
 
   void enqueue(const T value, int tid) {
-    double call_ts = std::chrono::high_resolution_clock::now()
-             .time_since_epoch()
-             .count();
+    double call_ts = this->clock.now();
     auto* node = new MSNode<T>(value);
 
     //if (this->logger.is_enabled(FairnessMetric::ENQUEUE_CALL)) {
@@ -82,9 +83,7 @@ public:
 	  MSPointer new_element(node, next.count + 1);
 	  if (cur_tail.ptr->next.compare_exchange_weak(next, new_element)) {
 	    // if (this->logger.is_enabled(FairnessMetric::ENQUEUE_IN)) {
-	    double in_ts = std::chrono::high_resolution_clock::now()
-             .time_since_epoch()
-             .count();
+	    double in_ts = this->clock.now();
 	    node->in_ts = in_ts;
 	      //   }
 	    break;
@@ -101,7 +100,7 @@ public:
     // this->logger.log_enqueue(node->tid, node->call_ts, node->in_ts);
   }
 
-  bool dequeue(T* value) {
+  bool dequeue(T* value, int tid) {
     MSPointer<T> cur_head;
     MSPointer<T> cur_tail;
     MSPointer<T> next;
@@ -124,9 +123,7 @@ public:
 	  *value = next.ptr->value;
 
 	  //  if (this->logger.is_enabled(FairnessMetric::DEQUEUE)) {
-	  next.ptr->deq_ts = std::chrono::high_resolution_clock::now()
-             .time_since_epoch()
-             .count();
+	  next.ptr->deq_ts = this->clock.now();
 	  
 	  std::lock_guard<std::mutex> lock(mtx);
 	  records.emplace_back(next.ptr->tid, next.ptr->call_ts, next.ptr->in_ts, next.ptr->deq_ts);
@@ -136,7 +133,7 @@ public:
 	    //  }
 	  
 	  MSPointer<T> new_head(next.ptr, cur_head.count + 1);
-	  if (head.compare_exchange_weak(cur_head, new_head)) break;
+	  if (head.compare_exchange_strong(cur_head, new_head)) break;
 	}
       }
     }
