@@ -10,5 +10,4 @@ public:
              .time_since_epoch()
              .count();
   }
-
-  };
+};

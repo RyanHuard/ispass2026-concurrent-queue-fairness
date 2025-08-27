@@ -7,7 +7,6 @@
 #include "FairnessMetrics.hpp"
 
 struct Record {
-  int tid;
   double call_ts;
   double in_ts;
   double deq_ts;
@@ -21,10 +20,10 @@ public:
   void disable(FairnessMetric metric);
   bool is_enabled(FairnessMetric metric);
   
-  void log_enqueue(int tid, double call_ts, double in_ts);
-   void log_dequeue(int tid, double call_ts, double in_ts, double deq_ts);
+  void log_enqueue(double call_ts, double in_ts);
+  void log_dequeue(double call_ts, double in_ts, double deq_ts);
 
-  std::vector<Record> get_logs();
+  std::vector<Record> get_records();
   
 private:
   mutable std::mutex mtx;
@@ -33,6 +32,10 @@ private:
 };
 
 
-double compute_thread_fairness(const std::vector<std::tuple<int,double,double,double>>& records);
+double compute_overtake_percentage(const std::vector<std::tuple<double, double, double>>& records);
 
-double compute_overtake_percentage(const std::vector<std::tuple<int, double, double, double>>& records);
+inline double now() {
+    return std::chrono::high_resolution_clock::now()
+             .time_since_epoch()
+             .count();
+  }
