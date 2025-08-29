@@ -80,14 +80,15 @@ public:
             double in_ts = now();
             node->in_ts = in_ts;
 	          break;
-	  }
-	}
-	else {
-	  MSPointer<T> new_tail(next.ptr, cur_tail.count + 1);
-	  tail.compare_exchange_weak(cur_tail, new_tail);
-	}
+	        }
+	      }
+        else {
+          MSPointer<T> new_tail(next.ptr, cur_tail.count + 1);
+          tail.compare_exchange_weak(cur_tail, new_tail);
+        }
       }
     }
+
     MSPointer<T> new_tail(node, cur_tail.count + 1);
     tail.compare_exchange_weak(cur_tail, new_tail);
   }
