@@ -27,9 +27,11 @@ template <typename T>
 struct MSNode {
   T value;
   std::atomic<MSPointer<T>> next;
-  double call_ts;
-  double in_ts;
-  double deq_ts;
+
+  uint64_t in_ts;
+  uint64_t call_ts;
+  uint64_t deq_ts;
+
   MSNode() : next(MSPointer<T>()) {}
   MSNode(const T& v) : value(v), next(MSPointer<T>()) {}
 };
@@ -41,7 +43,7 @@ private:
   std::atomic<MSPointer<T>> tail;
 
 public:
-  std::vector<std::tuple<double,double,double>> records;
+  std::vector<std::tuple<uint64_t, uint64_t, uint64_t>> records;
   MSQueue() {
     auto* dummy_node = new MSNode<T>();
     MSPointer<T> dummy_pointer(dummy_node, 0);
@@ -60,11 +62,11 @@ public:
     }
   }
 
-  void enqueue(const T value) {
-    double call_ts = now();
+  void enqueue(const T value, int tid) {
     auto* node = new MSNode<T>(value);
+   // node->call_ts = read_tsc();
   
-    node->call_ts = call_ts;
+    node->call_ts = now();
 
     MSPointer<T> cur_tail;
     MSPointer<T> next;
@@ -75,10 +77,13 @@ public:
 
       if (cur_tail == tail.load()) {
 	      if (next.ptr == nullptr) {
+          // timestamp before element is published
+        //  double in_ts = now();
+       //   node->in_ts = in_ts;
 	        MSPointer new_element(node, next.count + 1);
 	        if (cur_tail.ptr->next.compare_exchange_weak(next, new_element)) {
-            double in_ts = now();
-            node->in_ts = in_ts;
+           // node->in_ts = read_tsc();
+            node->in_ts = now();
 	          break;
 	        }
 	      }
@@ -93,7 +98,7 @@ public:
     tail.compare_exchange_weak(cur_tail, new_tail);
   }
 
-  bool dequeue(T* value) {
+  bool dequeue(T* value, int tid) {
     MSPointer<T> cur_head;
     MSPointer<T> cur_tail;
     MSPointer<T> next;
@@ -102,7 +107,7 @@ public:
       cur_head = head.load();
       cur_tail = tail.load();
       next = cur_head.ptr->next.load();
-
+      
       if (cur_head == head.load()) {
         if (cur_head.ptr == cur_tail.ptr) {
           if (next.ptr == nullptr) {
@@ -115,14 +120,16 @@ public:
           if (next.ptr == nullptr) continue;
           *value = next.ptr->value;
 
-          double deq_ts = now();
-          next.ptr->deq_ts = deq_ts;
-          
-          std::lock_guard<std::mutex> lock(mtx);
-          records.emplace_back(next.ptr->call_ts, next.ptr->in_ts, next.ptr->deq_ts);
-          
           MSPointer<T> new_head(next.ptr, cur_head.count + 1);
-          if (head.compare_exchange_strong(cur_head, new_head)) break;
+          if (head.compare_exchange_strong(cur_head, new_head)) {
+          //  double deq_ts = now();
+            //uint64_t deq_cycles = read_tsc();
+            uint64_t deq_ts = now();
+          
+            std::lock_guard<std::mutex> lock(mtx);
+            records.emplace_back(next.ptr->call_ts, next.ptr->in_ts, deq_ts);
+            break;
+          }
         }
       }
     } 

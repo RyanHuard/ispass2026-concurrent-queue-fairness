@@ -3,20 +3,31 @@
 #include <vector>
 #include <mutex>
 #include <unordered_map>
+#include <ostream>
 
 #include "FairnessMetrics.hpp"
 
-// struct OvertakeDepthStats { 
-//   double mean = 0; 
-//   size_t max = 0; 
-// };
+
+enum class EventTimestamp {
+  EnqueueCall = 0,   // when enqueue() is called
+  EnqueueInsert = 1, // when item enters the queue
+  Dequeue = 3  // when item is dequeued
+};
 
 struct OvertakeDepthStats {
-    double mean_overtaken = 0.0;   // avg depth among items with depth>0
-    size_t max_depth = 0;          // max depth
-    size_t count_overtaken = 0;    // # items with depth>0
-    double pct_overtaken = 0.0;    // 100 * count_overtaken / n
+    double mean = 0.0;   // avg overtake depth among items with depth > 0
+    size_t max_depth = 0;// max depth of an overtake
+    size_t count = 0;    // # items with depth > 0
+    double pct = 0.0;    // 100 * count_overtaken / n
 };
+
+inline std::ostream& operator<<(std::ostream& os, const OvertakeDepthStats& s) {
+    os << "mean=" << s.mean
+       << ", max=" << s.max_depth
+       << ", count=" << s.count
+       << ", pct=" << s.pct << "%";
+    return os;
+}
 
 struct Record {
   double call_ts;
@@ -43,13 +54,38 @@ private:
   std::vector<bool> enabled;
 };
 
+OvertakeDepthStats compute_overtake_metrics(
+  const std::vector<std::tuple<uint64_t, uint64_t, uint64_t>>&,
+  EventTimestamp, EventTimestamp // the events being measured
+);
 
-double compute_enq_to_deq_overtake_percentage(const std::vector<std::tuple<double, double, double>>& records);
+// Wrappers
+inline OvertakeDepthStats insertion_fairness(
+    const auto& records)
+{ return compute_overtake_metrics(records, EventTimestamp::EnqueueCall, EventTimestamp::EnqueueInsert); }
 
-OvertakeDepthStats compute_enqueue_overtake_depth(const std::vector<std::tuple<double,double,double>>& recs);
+inline OvertakeDepthStats service_fairness(
+    const auto& records)
+{ return compute_overtake_metrics(records, EventTimestamp::EnqueueInsert, EventTimestamp::Dequeue); }
 
-inline double now() {
+inline OvertakeDepthStats end_to_end_fairness(
+    const auto& records)
+{ return compute_overtake_metrics(records, EventTimestamp::EnqueueCall, EventTimestamp::Dequeue); }
+
+inline uint64_t now() {
     return std::chrono::high_resolution_clock::now()
              .time_since_epoch()
              .count();
-  }
+}
+
+static inline uint64_t get_field(
+    const std::tuple<uint64_t, uint64_t, uint64_t>& tup,
+    EventTimestamp f)
+{
+    switch (f) {
+        case EventTimestamp::EnqueueCall:   return std::get<0>(tup);
+        case EventTimestamp::EnqueueInsert: return std::get<1>(tup);
+        case EventTimestamp::Dequeue:       return std::get<2>(tup);
+    }
+    return 0.0; // unreachable
+}

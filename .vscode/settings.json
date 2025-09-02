@@ -76,7 +76,9 @@
         "numbers": "cpp",
         "semaphore": "cpp",
         "span": "cpp",
-        "variant": "cpp"
+        "variant": "cpp",
+        "map": "cpp",
+        "fstream": "cpp"
     },
     "C_Cpp.dimInactiveRegions": false
 }
