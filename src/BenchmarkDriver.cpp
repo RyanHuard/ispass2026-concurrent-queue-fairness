@@ -4,9 +4,14 @@
 #include <iomanip>
 #include <pthread.h>
 #include <sched.h>
+#include <unordered_map>
+#include <tuple>
+#include <ostream>
 
 #include "msqueue.hpp"
 #include "fcqueue.hpp"
+#include "scqueue.hpp"
+
 #include "../include/FairnessLogger.hpp"
 #include "../include/clocks/HighResolutionClock.hpp"
 
@@ -39,19 +44,30 @@ int main(int argc, char *argv[]) {
     size_t max_end2end_depth = 0;
 
     for (int trial = 0; trial < trials; ++trial) {
-      MSQueue<int> q;
+      //MSQueue<int> q;
      //FlatCombiningQueue<int> q(num_threads);
+      SySQueueStruct q;
+      SySQueueInit(&q, static_cast<std::size_t>(num_threads));
+      SySQueueStartProxy(&q);
+
       int num_ops_per_thread = num_ops / num_threads;
 
     //  for (int i = 0; i < 200; i++) q.enqueue(i);
       int value;
+      
 
       auto start = high_resolution_clock::now();
 
       auto worker = [&](int tid) {
+        ArgVal out;
         for (int i = 0; i < num_ops_per_thread; ++i) {
-          q.enqueue(i, tid);
-          while (!q.dequeue(&value, tid)) std::this_thread::yield();
+          SySQueueEnqueue(&q, i);
+          while (!SySQueueDequeueProxy(&q, static_cast<std::size_t>(tid), out)) {
+                        std::this_thread::yield();
+                    }
+            
+        //  q.enqueue(i, tid);
+          //while (!q.dequeue(&value, tid)) std::this_thread::yield();
         }
 		    
       };
@@ -67,13 +83,23 @@ int main(int argc, char *argv[]) {
       auto end = high_resolution_clock::now();
       auto duration = duration_cast<milliseconds>(end - start).count();
       total_time += duration;
+      SySQueueDestroy(&q);
+      SySQueueStopProxy(&q);
 
        // ---- Fairness stats for this trial ----
-      const auto& records = q.records;
-
+      //const auto& records = q.records;
+      const auto& records = g_records;   
+    /*  for (auto& rec : g_records) {
+std::cout << std::get<0>(rec) << " "
+              << std::get<1>(rec) << " "
+              << std::get<2>(rec) << "\n";
+      }
+*/
       auto ins = insertion_fairness(records);
       auto deq = service_fairness(records);
       auto e2e = end_to_end_fairness(records);
+
+      g_records.clear();
 
       total_insertion_mean += ins.mean;
       total_insertion_pct  += ins.pct;
@@ -89,7 +115,7 @@ int main(int argc, char *argv[]) {
       total_end2end_pct  += e2e.pct;
       total_end2end_count += e2e.count;
       max_end2end_depth = std::max(max_end2end_depth, e2e.max_depth);
-    }
+     }
 
     // averages across trials
     double avg_ms              = static_cast<double>(total_time) / trials;
