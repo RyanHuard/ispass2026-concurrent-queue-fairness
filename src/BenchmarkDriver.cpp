@@ -11,16 +11,21 @@
 #include "msqueue.hpp"
 #include "fcqueue.hpp"
 #include "scqueue.hpp"
+#include "args.hpp"
 
 #include "../include/FairnessLogger.hpp"
 #include "../include/clocks/HighResolutionClock.hpp"
 
-std::atomic<int> ready_count{0};
+using bench::Options;
+using bench::parse_args;
+
 
 int main(int argc, char *argv[]) {
+  Options opts = parse_args(argc, argv);
+
   using namespace std::chrono;
-  const int num_ops = 10'000; // each thread does this many
-  const int trials = 10;
+  const int num_ops = opts.ops; // each thread does this many
+  const int trials = opts.trials;
 
   // ---- CSV header ----
   std::cout << "threads,avg_ms,"
@@ -72,7 +77,6 @@ int main(int argc, char *argv[]) {
       auto end = high_resolution_clock::now();
       auto duration = duration_cast<milliseconds>(end - start).count();
       total_time += duration;
-
 
        // ---- Fairness stats for this trial ----
       const auto& records = q.records;
