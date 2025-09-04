@@ -33,64 +33,90 @@ std::vector<Record> FairnessLogger::get_records() { return records; }
 #include <algorithm>
 
 
+
+// Fenwick (Binary Indexed) Tree for prefix counts
+struct Fenwick {
+    std::vector<int> bit;
+    explicit Fenwick(int n) : bit(n + 1, 0) {}
+    void add(int idx, int val) { for (; idx < (int)bit.size(); idx += idx & -idx) bit[idx] += val; }
+    int sum_prefix(int idx) const { int s = 0; for (; idx > 0; idx -= idx & -idx) s += bit[idx]; return s; }
+};
+
 OvertakeDepthStats compute_overtake_metrics(
-  const std::vector<std::tuple<uint64_t, uint64_t, uint64_t>>& records,
-  EventTimestamp event1, EventTimestamp event2)
+    const std::vector<std::tuple<uint64_t, uint64_t, uint64_t>>& records,
+    EventTimestamp event1, EventTimestamp event2)
 {
-    /*
-    Example overtake calculation: 
-    E1: (1, 5)   // enq at t=1, deq at t=5
-    E2: (2, 3)   // enq at t=2, deq at t=3
+    OvertakeDepthStats res;
+    if (records.empty()) return res;
 
-    1. Start at newest element (E2)
-    2. min_deq = inf
-    3. deq_ts > min_deq? (3 > inf)? No.
-    4. set min_deq = 3.
-    5. Go to next element (E1)
-    6. deq_ts > min_deq? (5 > 3)? Yes.
-    7. Element was overtaken, increment overtaken_count
-    */
-
-    OvertakeDepthStats result;
-    if (records.empty()) return result;
-
-    // (event1, event2) timestamps
-    std::vector<std::pair<uint64_t, uint64_t>> ts_pairs;
-
+    // Build (e1,e2)
+    std::vector<std::pair<uint64_t,uint64_t>> ts_pairs;
     ts_pairs.reserve(records.size());
-
-    for (const auto& record : records) {
-      ts_pairs.emplace_back(get_field(record, event1), get_field(record, event2));
+    for (const auto& rec : records) {
+        ts_pairs.emplace_back(get_field(rec, event1), get_field(rec, event2));
     }
 
-
+    // Sort by event1 asc, then event2 asc (tie-break doesn’t affect correctness)
     std::stable_sort(ts_pairs.begin(), ts_pairs.end(),
-  [](const auto& a, const auto& b){
-    if (a.first != b.first) return a.first < b.first;
-    return a.second < b.second; // tie-break by dequeue time
-  });
+        [](const auto& a, const auto& b){
+            if (a.first != b.first) return a.first < b.first;
+            return a.second < b.second;
+        });
 
+    // Coordinate-compress event2 to [1..M]
+    std::vector<uint64_t> e2_vals;
+    e2_vals.reserve(ts_pairs.size());
+    for (auto& p : ts_pairs) e2_vals.push_back(p.second);
+    std::sort(e2_vals.begin(), e2_vals.end());
+    e2_vals.erase(std::unique(e2_vals.begin(), e2_vals.end()), e2_vals.end());
+    auto rank_e2 = [&](uint64_t v){
+        return (int)(std::lower_bound(e2_vals.begin(), e2_vals.end(), v) - e2_vals.begin()) + 1; // 1-based
+    };
 
-    std::vector<size_t> depth(ts_pairs.size(), 0);
-    for (size_t i = 0; i < ts_pairs.size(); ++i) {
-      for (size_t j = i + 1; j < ts_pairs.size(); ++j) {
-        if (ts_pairs[j].first == ts_pairs[i].first) continue; // skip ties
-        if (ts_pairs[j].second < ts_pairs[i].second && ts_pairs[j].first > ts_pairs[i].first ) ++depth[i];
-      }
+    // Sweep from largest event1 to smallest.
+    // Process equal-e1 items as a group: query first, then insert all from the group.
+    const int M = (int)e2_vals.size();
+    Fenwick bit(M);
+
+    std::vector<std::size_t> depth(ts_pairs.size(), 0);
+
+    std::size_t i = ts_pairs.size();
+    while (i > 0) {
+        std::size_t j = i;
+        const uint64_t e1 = ts_pairs[i-1].first;
+        // group is [k..i-1] with same e1
+        while (j > 0 && ts_pairs[j-1].first == e1) --j;
+
+        // Query depths for this group (tree has only strictly larger event1s)
+        for (std::size_t k = j; k < i; ++k) {
+            int r = rank_e2(ts_pairs[k].second);
+            // strict < on event2 ⇒ use prefix up to r-1
+            depth[k] = (r > 1) ? bit.sum_prefix(r - 1) : 0;
+        }
+
+        // Insert this group's e2 into the tree
+        for (std::size_t k = j; k < i; ++k) {
+            int r = rank_e2(ts_pairs[k].second);
+            bit.add(r, 1);
+        }
+
+        i = j;
     }
 
+    // Aggregate stats
     uint64_t sum = 0;
-    for (auto d: depth) {
-        sum += d;                          // add every depth, even 0
-        if (d > result.max_depth) result.max_depth = d;
-        if (d > 0) ++result.count;  // still track how many were overtaken
+    for (auto d : depth) {
+        sum += d;
+        if (d > res.max_depth) res.max_depth = d;
+        if (d > 0) ++res.count;
     }
 
-    const double n = static_cast<double>(depth.size());
-    result.mean = (double)sum / n;  // all items
-    result.pct  = 100.0 * (double)result.count/ n;
-    
-    return result;
+    const double n = (double)depth.size();
+    res.mean_all_elements = (n > 0) ? (double)sum / n : 0.0;
+    res.mean_overtaken_elements = (res.count > 0) ? (double)sum / (double)res.count : 0.0;
+    res.pct = (n > 0) ? 100.0 * (double)res.count / n : 0.0;
+
+    return res;
 }
 
 

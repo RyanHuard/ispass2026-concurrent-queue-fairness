@@ -15,14 +15,16 @@ enum class EventTimestamp {
 };
 
 struct OvertakeDepthStats {
-    double mean = 0.0;   // avg overtake depth among items with depth > 0
+    double mean_all_elements = 0.0;   // avg overtake depth among all items
+    double mean_overtaken_elements = 0.0; // avg overtake depth among items that got overtaken
     size_t max_depth = 0;// max depth of an overtake
     size_t count = 0;    // # items with depth > 0
     double pct = 0.0;    // 100 * count_overtaken / n
 };
 
 inline std::ostream& operator<<(std::ostream& os, const OvertakeDepthStats& s) {
-    os << "mean=" << s.mean
+    os << "mean_all=" << s.mean_all_elements
+       << ", mean_ovt=" << s.mean_overtaken_elements
        << ", max=" << s.max_depth
        << ", count=" << s.count
        << ", pct=" << s.pct << "%";
