@@ -64,9 +64,8 @@ public:
 
   void enqueue(const T value, int tid) {
     auto* node = new MSNode<T>(value);
-   // node->call_ts = read_tsc();
-  
-    node->call_ts = now();
+
+    node->call_ts = adj_now();
 
     MSPointer<T> cur_tail;
     MSPointer<T> next;
@@ -77,13 +76,9 @@ public:
 
       if (cur_tail == tail.load()) {
 	      if (next.ptr == nullptr) {
-          // timestamp before element is published
-        //  double in_ts = now();
-       //   node->in_ts = in_ts;
+          node->in_ts = adj_now();
 	        MSPointer new_element(node, next.count + 1);
 	        if (cur_tail.ptr->next.compare_exchange_weak(next, new_element)) {
-           // node->in_ts = read_tsc();
-            node->in_ts = now();
 	          break;
 	        }
 	      }
@@ -121,13 +116,14 @@ public:
           *value = next.ptr->value;
 
           MSPointer<T> new_head(next.ptr, cur_head.count + 1);
-          if (head.compare_exchange_strong(cur_head, new_head)) {
-          //  double deq_ts = now();
-            //uint64_t deq_cycles = read_tsc();
-            uint64_t deq_ts = now();
+
+          uint64_t call_ts = next.ptr->call_ts;
+          uint64_t in_ts = next.ptr->in_ts;
           
+          if (head.compare_exchange_strong(cur_head, new_head)) {
+            uint64_t deq_ts = adj_now();
             std::lock_guard<std::mutex> lock(mtx);
-            records.emplace_back(next.ptr->call_ts, next.ptr->in_ts, deq_ts);
+            records.emplace_back(call_ts, in_ts, deq_ts);
             break;
           }
         }

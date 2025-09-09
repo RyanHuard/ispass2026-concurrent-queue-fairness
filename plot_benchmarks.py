@@ -14,6 +14,8 @@ import os
 import sys
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MultipleLocator
+
 
 REQUIRED_COLS = [
     "threads","avg_ms",
@@ -87,6 +89,7 @@ def plot_single_series(out_dir, dfs):
         for label, df in dfs:
             plt.plot(df["threads"], df[ycol], marker="o", label=label)
         plt.xlabel("Threads")
+        plt.gca().xaxis.set_major_locator(MultipleLocator(4)) # Makes x-axis multiples of 4
         plt.ylabel(ylabel)
         plt.title(title)
         plt.legend()
@@ -100,6 +103,8 @@ def plot_combined_panels(out_dir, dfs):
                 ax.plot(df["threads"], df[col], marker="o", label=label)
             ax.set_title(title)
             ax.set_xlabel("Threads")
+            ax.xaxis.set_major_locator(MultipleLocator(4))
+            
         axes[0].set_ylabel(ylabel)
         # Put one legend for the whole figure
         handles, labels = axes[0].get_legend_handles_labels()

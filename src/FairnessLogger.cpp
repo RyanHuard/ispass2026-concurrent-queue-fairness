@@ -49,12 +49,16 @@ OvertakeDepthStats compute_overtake_metrics(
     OvertakeDepthStats res;
     if (records.empty()) return res;
 
-    // Build (e1,e2)
+        // Build (e1,e2), skipping e1==0 (e.g., in_ts==0)
     std::vector<std::pair<uint64_t,uint64_t>> ts_pairs;
     ts_pairs.reserve(records.size());
     for (const auto& rec : records) {
-        ts_pairs.emplace_back(get_field(rec, event1), get_field(rec, event2));
+        const uint64_t e1 = get_field(rec, event1);
+        if (e1 == 0) continue;                 // <-- skip zero in_ts
+        const uint64_t e2 = get_field(rec, event2);
+        ts_pairs.emplace_back(e1, e2);
     }
+    if (ts_pairs.empty()) return res;
 
     // Sort by event1 asc, then event2 asc (tie-break doesn’t affect correctness)
     std::stable_sort(ts_pairs.begin(), ts_pairs.end(),

@@ -16,16 +16,35 @@
 #include "../include/FairnessLogger.hpp"
 #include "../include/clocks/HighResolutionClock.hpp"
 
+
 using bench::Options;
 using bench::parse_args;
+
+// Pin a pthread (std::thread's native handle) to a single core.
+static inline void pin_pthread_to_core(pthread_t th, int core_id) {
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    CPU_SET(core_id, &cpuset);
+    int rc = pthread_setaffinity_np(th, sizeof(cpu_set_t), &cpuset);
+    if (rc != 0) {
+        std::perror("pthread_setaffinity_np");
+    }
+}
+
+// Convenience: pin current thread (use inside worker)
+static inline void pin_self_to_core(int core_id) {
+    pin_pthread_to_core(pthread_self(), core_id);
+}
+
 
 
 int main(int argc, char *argv[]) {
   Options opts = parse_args(argc, argv);
 
   using namespace std::chrono;
-  const int num_ops = opts.ops; // each thread does this many
-  const int trials = opts.trials;
+  const int num_ops = opts.ops; // each thread does this many ops      default = 10,000
+  const int trials = opts.trials; // trials per thread count           default = 10
+  const int max_threads = opts.max_threads; //                       default = 32
 
   // ---- CSV header ----
   std::cout << "threads,avg_ms,"
@@ -33,7 +52,7 @@ int main(int argc, char *argv[]) {
                "deq_mean_all,deq_mean_ovt,deq_max,deq_count_avg,deq_pct_avg,"
                "e2e_mean_all,e2e_mean_ovt,e2e_max,e2e_count_avg,e2e_pct_avg\n";
 
-  for (int num_threads = 1; num_threads <= 16; ++num_threads) {
+  for (int num_threads = 1; num_threads <= max_threads; ++num_threads) {
     // accumulators for measurements
     long long total_time = 0;
     double total_insertion_mean_all_elements = 0.0, total_insertion_mean_overtaken_elements = 0.0, total_insertion_pct = 0.0;
@@ -48,24 +67,28 @@ int main(int argc, char *argv[]) {
     size_t total_end2end_count = 0;
     size_t max_end2end_depth = 0;
 
-    for (int trial = 0; trial < trials; ++trial) {
-     MSQueue<int> q;
-    // FlatCombiningQueue<int> q(num_threads);
-    //SySQueue<int> q(num_threads);
 
-     int num_ops_per_thread = num_ops / num_threads;
+    // common practice is to ignore the first trial or two because of hardware warmup
+    for (int trial = 0; trial < trials + 2; ++trial) {
+    //  MSQueue<int> q;
+       FlatCombiningQueue<int> q(num_threads);
+     // SySQueue<int> q(num_threads);
 
       auto start = high_resolution_clock::now();
+       
 
       auto worker = [&](int tid) {
-        int value;
-       // for (int i = 0; i < 200; i++) q.enqueue(i, tid);
+        const int ncores = std::thread::hardware_concurrency() ? 
+                       (int)std::thread::hardware_concurrency() : 1;
+        pin_self_to_core(tid % ncores);
 
+        int value;
+        for (int i = 0; i < 200; i++) q.enqueue(i, 0);
         for (int i = 0; i < num_ops; ++i) {
           q.enqueue(i, tid);
-          while (!q.dequeue(&value, tid)) std::this_thread::yield();
+          while (!q.dequeue(&value, tid))  std::this_thread::yield();
         }
-		    //for (int i = 0; i < 200; i++) q.dequeue(&value, tid);
+		    while (!q.dequeue(&value, tid))  std::this_thread::yield();
       };
 
       std::vector<std::thread> threads;
@@ -76,9 +99,28 @@ int main(int argc, char *argv[]) {
 
       auto end = high_resolution_clock::now();
       auto duration = duration_cast<milliseconds>(end - start).count();
-      total_time += duration;
 
-       // ---- Fairness stats for this trial ----
+      // ignore the first 2 trials
+      if (trial < 2) continue;
+
+
+      // after threads join, before you aggregate metrics:
+// size_t in_ts_zero = 0, deq_before_in = 0;
+// for (auto& rec : q.records) {
+//     uint64_t call_ts = std::get<0>(rec);
+//     uint64_t in_ts   = std::get<1>(rec);
+//     uint64_t deq_ts  = std::get<2>(rec);
+//     if (in_ts == 0) ++in_ts_zero;
+//     if (deq_ts < in_ts) ++deq_before_in;
+// }
+// std::cerr << "in_ts_zero=" << in_ts_zero
+//           << " deq_before_in=" << deq_before_in
+//           << " records=" << q.records.size() << "\n";
+
+      
+      total_time += duration;
+      
+       // Fairness stats for this trial
       const auto& records = q.records;
 
       auto ins = insertion_fairness(records);
@@ -123,7 +165,7 @@ int main(int argc, char *argv[]) {
     double e2e_pct_avg         = total_end2end_pct / trials;
     double e2e_count_avg       = static_cast<double>(total_end2end_count) / trials;
 
-    // ---- CSV row ----
+    // This should go to a CSV
     std::cout << std::fixed << std::setprecision(3)
               << num_threads << ','
               << avg_ms << ','
@@ -131,22 +173,6 @@ int main(int argc, char *argv[]) {
               << deq_mean_all_elements_avg << ',' << deq_mean_overtaken_elements_avg << ',' << max_dequeue_depth   << ',' << deq_count_avg << ',' << deq_pct_avg << ','
               << e2e_mean_all_elements_avg << ',' << e2e_mean_overtaken_elements_avg << ',' << max_end2end_depth << ',' << e2e_count_avg << ',' << e2e_pct_avg
               << '\n';
-
-    //  std::cout << "Threads: " << num_threads
-    //           << "  Avg Time (ms): " << (total_time / trials)
-    //           << "\n  Insertion Fairness: mean=" << (total_insertion_mean / trials)
-    //           << ", max=" << max_insertion_depth
-    //           << ", count=" << (total_insertion_count / trials)
-    //           << ", pct=" << (total_insertion_pct / trials) << "%"
-    //           << "\n  dequeue Fairness:   mean=" << (total_dequeue_mean / trials)
-    //           << ", max=" << max_dequeue_depth
-    //           << ", count=" << (total_dequeue_count / trials)
-    //           << ", pct=" << (total_dequeue_pct / trials) << "%"
-    //           << "\n  End-to-End Fairness:mean=" << (total_end2end_mean / trials)
-    //           << ", max=" << max_end2end_depth
-    //           << ", count=" << (total_end2end_count / trials)
-    //           << ", pct=" << (total_end2end_pct / trials) << "%"
-    //           << "\n\n";
 
     fprintf(stderr, "Threads=%d complete.\n", num_threads);
   }

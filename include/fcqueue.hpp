@@ -43,7 +43,7 @@ public:
     bool enqueue(const T& item, int tid) {
         auto& slot = operations_[tid];
         slot.node.value   = item;
-        slot.node.call_ts = now();                       // (1) call time
+        slot.node.call_ts = adj_now();                       // (1) call time
         slot.node.in_ts   = 0;
         slot.node.deq_ts  = 0;
         slot.opcode.store(Opcode::Enqueue, std::memory_order_release);
@@ -77,7 +77,7 @@ private:
             if (code == Opcode::Enqueue) {
                 // Enqueue LP: element becomes visible
                 FCNode<T> n = slot.node;          // copy out of the slot
-                n.in_ts = now();                  // (2) insertion LP
+                n.in_ts = adj_now();                  // (2) insertion LP
                 q_.push(n);
                 slot.opcode.store(Opcode::Done, std::memory_order_release);
                 slot.node = {};                   // clear slot
@@ -85,7 +85,7 @@ private:
             else if (code == Opcode::Dequeue) {
                 if (!q_.empty()) {
                     FCNode<T> n = q_.front(); q_.pop();
-                    n.deq_ts = now();            // (3) dequeue LP
+                    n.deq_ts = adj_now();            // (3) dequeue LP
 
                     // Log ONLY now (at pop):
                     records.emplace_back(n.call_ts, n.in_ts, n.deq_ts);

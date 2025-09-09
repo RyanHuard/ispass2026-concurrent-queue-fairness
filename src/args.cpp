@@ -18,7 +18,7 @@ namespace bench {
 
     static void usage(const char* prog) {
         std::cerr << "Usage: " << prog
-                  << " [--queue=ms|fc|sys|all|csv] [--trials=N] [--ops=N]\n";
+                  << " [--queue=ms|fc|sys|all] [--trials=N] [--ops=N]\n";
     }   
 
     Options parse_args(int argc, char *argv[]) {
@@ -40,6 +40,10 @@ namespace bench {
                 try { opts.ops = std::stoi(arg.substr(6)); }
                 catch (...) { usage(argv[0]); std::exit(1); }
             } 
+            else if (arg.rfind("--threads=", 0) == 0) {
+                try { opts.max_threads = std::stoi(arg.substr(10)); }
+                catch (...) { usage(argv[0]); std::exit(1); }
+            }
             else if (arg == "--help" || arg == "-h") {
                 usage(argv[0]); std::exit(0);
             } 
