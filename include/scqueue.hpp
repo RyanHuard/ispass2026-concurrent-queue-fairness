@@ -8,11 +8,6 @@
 #include <cstdint>
 #include <limits>
 
-// Optional: replace with your own clock if you have one (e.g., HighResolutionClock::now_ns()).
-static inline uint64_t now_ns() {
-    using namespace std::chrono;
-    return duration_cast<nanoseconds>(high_resolution_clock::now().time_since_epoch()).count();
-}
 
 
 static constexpr int EMPTY_QUEUE = std::numeric_limits<int>::min();
@@ -86,7 +81,7 @@ public:
     // ---------- enqueue (single CAS publish via tail-swap) ----------
     inline void enqueue(T arg, int tid) {
         auto* p = new Node();              // fresh empty node (next==self)
-        uint64_t call_ts = now();
+        uint64_t call_ts = adj_now();
 
         std::atomic_thread_fence(std::memory_order_seq_cst);
         Node* oldTail = NQPos_.exchange(p, std::memory_order_acq_rel);
@@ -95,11 +90,9 @@ public:
         std::atomic_thread_fence(std::memory_order_release);
         oldTail->next.store(p, std::memory_order_release);
 
-        uint64_t in_ts = now();
+        uint64_t in_ts = adj_now();
         oldTail->call_ts = call_ts;
         oldTail->in_ts   = in_ts;
-
-        enqueue_counter_.fetch_add(1, std::memory_order_relaxed);
     }
 
     // ---------- dequeue via proxy (tid in [0, nThreads-1]) ----------
@@ -128,14 +121,6 @@ public:
         return true;
     }
 
-    // ---------- stats / records ----------
-    uint64_t enqueues()  const { return enqueue_counter_.load(std::memory_order_relaxed); }
-    uint64_t dequeues()  const { return dequeue_counter_.load(std::memory_order_relaxed); }
-
-    // // Triples of (call_ts, in_ts, deq_ts) logged by the proxy
-    // const std::vector<std::tuple<uint64_t,uint64_t,uint64_t>>& records() const {
-    //     return records_;
-    // }
 
 private:
     struct Node {
@@ -187,7 +172,7 @@ private:
                                                  std::memory_order_acq_rel,
                                                  std::memory_order_acquire)) {
                     out     = oldHead->val;
-                    deq_ts  = now_ns();
+                    deq_ts  = adj_now();
                     call_ts = oldHead->call_ts;
                     in_ts   = oldHead->in_ts;
                     got     = true;
