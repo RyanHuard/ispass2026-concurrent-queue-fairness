@@ -50,7 +50,7 @@ public:
     MSPointer<T> dummy_pointer(dummy_node, 0);
     head.store(dummy_pointer);
     tail.store(dummy_pointer);
-    records.reserve(25000);
+    records.reserve(165000);
   }
 
   ~MSQueue() {
@@ -64,34 +64,34 @@ public:
   }
 
   void enqueue(const T value, int tid) {
+    uint64_t call_ts = now();
     auto* node = new MSNode<T>(value);
-
-    node->call_ts = adj_now();
+    node->call_ts = call_ts;
 
     MSPointer<T> cur_tail;
     MSPointer<T> next;
 
     while (true) {
-      cur_tail = tail.load();
-      next = cur_tail.ptr->next.load();
+      cur_tail = tail.load(std::memory_order_acquire);
+      next = cur_tail.ptr->next.load(std::memory_order_acquire);
 
       if (cur_tail == tail.load()) {
 	      if (next.ptr == nullptr) {
-          node->in_ts = adj_now();
 	        MSPointer new_element(node, next.count + 1);
-	        if (cur_tail.ptr->next.compare_exchange_weak(next, new_element)) {
+	        if (cur_tail.ptr->next.compare_exchange_weak(next, new_element, std::memory_order_acq_rel, std::memory_order_acquire)) {
+            node->in_ts = now();
 	          break;
 	        }
 	      }
         else {
           MSPointer<T> new_tail(next.ptr, cur_tail.count + 1);
-          tail.compare_exchange_weak(cur_tail, new_tail);
+          tail.compare_exchange_weak(cur_tail, new_tail, std::memory_order_relaxed, std::memory_order_relaxed);
         }
       }
     }
 
     MSPointer<T> new_tail(node, cur_tail.count + 1);
-    tail.compare_exchange_weak(cur_tail, new_tail);
+    tail.compare_exchange_weak(cur_tail, new_tail, std::memory_order_relaxed, std::memory_order_relaxed);
   }
 
   bool dequeue(T* value, int tid) {
@@ -100,9 +100,9 @@ public:
     MSPointer<T> next;
 
     while (true) {
-      cur_head = head.load();
-      cur_tail = tail.load();
-      next = cur_head.ptr->next.load();
+      cur_head = head.load(std::memory_order_acquire);
+      cur_tail = tail.load(std::memory_order_acquire);
+      next = cur_head.ptr->next.load(std::memory_order_acquire);
       
       if (cur_head == head.load()) {
         if (cur_head.ptr == cur_tail.ptr) {
@@ -110,7 +110,7 @@ public:
             return false;
           }
           MSPointer<T> new_tail(next.ptr, cur_tail.count + 1);
-          tail.compare_exchange_weak(cur_tail, new_tail);
+          tail.compare_exchange_weak(cur_tail, new_tail, std::memory_order_relaxed, std::memory_order_acquire);
 	      }   
         else {
           if (next.ptr == nullptr) continue;
@@ -121,8 +121,8 @@ public:
           uint64_t call_ts = next.ptr->call_ts;
           uint64_t in_ts = next.ptr->in_ts;
           
-          if (head.compare_exchange_strong(cur_head, new_head)) {
-            uint64_t deq_ts = adj_now();
+          if (head.compare_exchange_weak(cur_head, new_head, std::memory_order_acq_rel, std::memory_order_acquire)) {
+            uint64_t deq_ts = now();
             std::lock_guard<std::mutex> lock(mtx);
             records.emplace_back(call_ts, in_ts, deq_ts);
             break;

@@ -78,10 +78,9 @@ public:
     SySQueue(SySQueue&&) = delete;
     SySQueue& operator=(SySQueue&&) = delete;
 
-    // ---------- enqueue (single CAS publish via tail-swap) ----------
     inline void enqueue(T arg, int tid) {
-        auto* p = new Node();              // fresh empty node (next==self)
-        uint64_t call_ts = adj_now();
+        uint64_t call_ts = now();
+        auto* p = new Node();           
 
         std::atomic_thread_fence(std::memory_order_seq_cst);
         Node* oldTail = NQPos_.exchange(p, std::memory_order_acq_rel);
@@ -90,12 +89,11 @@ public:
         std::atomic_thread_fence(std::memory_order_release);
         oldTail->next.store(p, std::memory_order_release);
 
-        uint64_t in_ts = adj_now();
+        uint64_t in_ts = now();
         oldTail->call_ts = call_ts;
         oldTail->in_ts   = in_ts;
     }
 
-    // ---------- dequeue via proxy (tid in [0, nThreads-1]) ----------
     inline bool dequeue(T* out, int tid) {
         Cmd* NewDummyTail = ThreadDummyCommands_[tid];
         NewDummyTail->Next.store(NewDummyTail, std::memory_order_relaxed);
@@ -103,7 +101,6 @@ public:
         NewDummyTail->ready.store(false, std::memory_order_relaxed);
         NewDummyTail->had_value = false;
 
-        // publish command by swapping tail
         Cmd* Current = NQCmdPos_.exchange(NewDummyTail, std::memory_order_acq_rel);
         Current->Next.store(NewDummyTail, std::memory_order_release);
 
@@ -117,7 +114,6 @@ public:
 
         if (!Current->had_value) return false;
         *out = Current->out_val;
-        dequeue_counter_.fetch_add(1, std::memory_order_relaxed);
         return true;
     }
 
@@ -172,7 +168,7 @@ private:
                                                  std::memory_order_acq_rel,
                                                  std::memory_order_acquire)) {
                     out     = oldHead->val;
-                    deq_ts  = adj_now();
+                    deq_ts  = now();
                     call_ts = oldHead->call_ts;
                     in_ts   = oldHead->in_ts;
                     got     = true;
@@ -180,18 +176,16 @@ private:
                     oldHead->tid    = current->pid;
                     oldHead->deq_ts = deq_ts;
 
-                    // log triple
                     {
                         std::lock_guard<std::mutex> lk(rec_mtx_);
                         records.emplace_back(call_ts, in_ts, deq_ts);
                     }
 
-                    delete oldHead; // only proxy deletes data nodes
+                    delete oldHead; 
                     break;
                 }
             }
 
-            // respond
             current->out_val   = got ? out : EMPTY_QUEUE;
             current->had_value = got;
             current->ready.store(true, std::memory_order_release);
@@ -199,11 +193,9 @@ private:
     }
 
 private:
-    // data queue
-    std::atomic<Node*> NQPos_{nullptr}; // tail
-    std::atomic<Node*> DQPos_{nullptr}; // head
+    std::atomic<Node*> NQPos_{nullptr}; 
+    std::atomic<Node*> DQPos_{nullptr}; 
 
-    // command queue (proxy)
     std::atomic<Cmd*> DQCmdPos_{nullptr};
     std::atomic<Cmd*> NQCmdPos_{nullptr};
     std::vector<Cmd*> ThreadDummyCommands_; // per-thread rotating "next dummy"
@@ -213,10 +205,5 @@ private:
     std::atomic<bool> NeedDQProxy_{false};
     std::thread proxy_thread_;
 
-    // stats
-    std::atomic<std::uint64_t> enqueue_counter_{0};
-    std::atomic<std::uint64_t> dequeue_counter_{0};
-
-    // logging
     std::mutex rec_mtx_;
 };

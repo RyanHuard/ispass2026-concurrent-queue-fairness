@@ -74,45 +74,16 @@ inline OvertakeDepthStats end_to_end_fairness(
     const auto& records)
 { return compute_overtake_metrics(records, EventTimestamp::EnqueueCall, EventTimestamp::Dequeue); }
 
-// inline uint64_t now() {
-//     return std::chrono::high_resolution_clock::now()
-//              .time_since_epoch()
-//              .count();
-// }
 
-#include <immintrin.h>   // _mm_lfence
-#include <x86intrin.h>   // __rdtscp, __rdtsc
-
-// // Serializing timestamp read (preferred)
-// static inline uint64_t now() {
-//     _mm_lfence();
-//     unsigned aux;
-//     uint64_t t = __rdtscp(&aux);  // waits for all prior ops to complete
-//     _mm_lfence();                 // keep subsequent ops after the read
-//     return t;
-// }
-
-static inline uint64_t now() {
-  timespec ts;
-  clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
-  return uint64_t(ts.tv_sec) * 1000000000ull + uint64_t(ts.tv_nsec);
-}
-
+#include <immintrin.h> 
 #include <x86intrin.h>
-#include <barrier>
-#include <atomic>
-
-
-
-static inline uint64_t adj_now() {
-    _mm_lfence();
+static inline uint64_t now() {
+    _mm_lfence(); //
     unsigned aux;
-    uint64_t t = __rdtscp(&aux);   // serializing read
-    _mm_lfence();                  // (optional) tighten ordering further
-    return t;
+    uint64_t ts = __rdtscp(&aux);  
+    _mm_lfence(); 
+    return ts;
 }
-
-
 
 
 static inline uint64_t get_field(
@@ -124,7 +95,7 @@ static inline uint64_t get_field(
         case EventTimestamp::EnqueueInsert: return std::get<1>(tup);
         case EventTimestamp::Dequeue:       return std::get<2>(tup);
     }
-    return 0.0; // unreachable
+    return 0.0;
 }
 
 

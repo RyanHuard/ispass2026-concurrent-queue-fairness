@@ -12,30 +12,11 @@
 #include "fcqueue.hpp"
 #include "scqueue.hpp"
 #include "args.hpp"
-
-#include "../include/FairnessLogger.hpp"
-#include "../include/clocks/HighResolutionClock.hpp"
-
+#include "Workloads.hpp"
+#include "FairnessLogger.hpp"
 
 using bench::Options;
 using bench::parse_args;
-
-// Pin a pthread (std::thread's native handle) to a single core.
-static inline void pin_pthread_to_core(pthread_t th, int core_id) {
-    cpu_set_t cpuset;
-    CPU_ZERO(&cpuset);
-    CPU_SET(core_id, &cpuset);
-    int rc = pthread_setaffinity_np(th, sizeof(cpu_set_t), &cpuset);
-    if (rc != 0) {
-        std::perror("pthread_setaffinity_np");
-    }
-}
-
-// Convenience: pin current thread (use inside worker)
-static inline void pin_self_to_core(int core_id) {
-    pin_pthread_to_core(pthread_self(), core_id);
-}
-
 
 
 int main(int argc, char *argv[]) {
@@ -69,31 +50,25 @@ int main(int argc, char *argv[]) {
 
 
     // common practice is to ignore the first trial or two because of hardware warmup
-    for (int trial = 0; trial < trials + 2; ++trial) {
-      MSQueue<int> q;
-      // FlatCombiningQueue<int> q(num_threads);
-   //  SySQueue<int> q(num_threads);
+    for (int trial = 0; trial < trials + 2; trial++) {
+     //MSQueue<int> q;
+     //FlatCombiningQueue<int> q(num_threads);
+      SySQueue<int> q(num_threads);
 
       auto start = high_resolution_clock::now();
-       
 
-      auto worker = [&](int tid) {
-        const int ncores = std::thread::hardware_concurrency() ? 
-                       (int)std::thread::hardware_concurrency() : 1;
-        pin_self_to_core(tid % ncores);
+      #include <barrier>
+      std::barrier sync(num_threads);
+      auto worker_thread = [&](int tid) {
+        Workload workload;
+        workload = Workload::DequeueHeavy;
 
-        int value;
-        for (int i = 0; i < 200; i++) q.enqueue(i, 0);
-        for (int i = 0; i < num_ops; ++i) {
-          q.enqueue(i, tid);
-          while (!q.dequeue(&value, tid))  std::this_thread::yield();
-        }
-	for (int i = 0; i < 200; i++) q.dequeue(&value, tid);;
+        worker(q, tid, num_ops, workload, sync);
       };
 
       std::vector<std::thread> threads;
       for (int t = 0; t < num_threads; t++) {
-        threads.emplace_back(worker, t);
+        threads.emplace_back(worker_thread, t);
       }
       for (auto& thread : threads) thread.join();
 
@@ -103,25 +78,30 @@ int main(int argc, char *argv[]) {
       // ignore the first 2 trials
       if (trial < 2) continue;
 
+      total_time += duration;
 
-      // after threads join, before you aggregate metrics:
-// size_t in_ts_zero = 0, deq_before_in = 0;
-// for (auto& rec : q.records) {
-//     uint64_t call_ts = std::get<0>(rec);
-//     uint64_t in_ts   = std::get<1>(rec);
-//     uint64_t deq_ts  = std::get<2>(rec);
-//     if (in_ts == 0) ++in_ts_zero;
-//     if (deq_ts < in_ts) ++deq_before_in;
-// }
-// std::cerr << "in_ts_zero=" << in_ts_zero
-//           << " deq_before_in=" << deq_before_in
-//           << " records=" << q.records.size() << "\n";
+
+    //  after threads join, before you aggregate metrics:
+size_t in_ts_zero = 0, deq_before_in = 0;
+for (auto& rec : q.records) {
+    uint64_t call_ts = std::get<0>(rec);
+    uint64_t in_ts   = std::get<1>(rec);
+    uint64_t deq_ts  = std::get<2>(rec);
+    if (in_ts == 0) ++in_ts_zero;
+    if (deq_ts < in_ts) ++deq_before_in;
+}
+std::cerr << "in_ts_zero=" << in_ts_zero
+          << " deq_before_in=" << deq_before_in
+          << " records=" << q.records.size() << "\n";
 
       
-      total_time += duration;
+      
       
        // Fairness stats for this trial
-      const auto& records = q.records;
+      auto& records = q.records;  
+      // removes the prefill elements
+      records.erase(records.begin(), records.begin() + std::min<size_t>(200 * num_threads, records.size())); 
+
 
       auto ins = insertion_fairness(records);
       auto deq = service_fairness(records);
