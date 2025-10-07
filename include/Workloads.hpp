@@ -8,7 +8,6 @@
 #include <barrier>
 
 
-
 enum class Workload { 
     EnqueueHeavy, 
     Balanced, 
@@ -26,8 +25,7 @@ inline std::vector<int> make_ops_with_ratio(int total, double enq_frac, int seed
     ops.insert(ops.end(), e, 0);
     ops.insert(ops.end(), d, 1);
 
-    // Simple engine, reproducible with seed (e.g. thread id)
-    std::default_random_engine eng(seed ? seed : std::random_device{}());
+    std::default_random_engine eng(seed ? seed : std::random_device{}()); // this isn't necessary but I put it in
     std::shuffle(ops.begin(), ops.end(), eng);
     return ops;
 }
@@ -56,8 +54,10 @@ void worker(Queue& q, int tid, int num_ops, Workload workload, std::barrier<>& s
             ratio = 1;
             for (int i = 0; i < num_ops; i++) {
                 q.enqueue(i, tid);
-                while (!q.dequeue(&value, tid)) std::this_thread::yield();
-            }
+                while (!q.dequeue(&value, tid)) {
+                        std::this_thread::yield(); 
+                    }        
+            }   
             break;
         
         case Workload::Balanced: {
@@ -66,7 +66,7 @@ void worker(Queue& q, int tid, int num_ops, Workload workload, std::barrier<>& s
             int e = 0, d = 0;
             for (int i = 0; i < (int)ops.size(); ++i) {
                 if (ops[i] == 0) { 
-                    q.enqueue(10, tid); 
+                    q.enqueue(i, tid); 
                     e++; 
                 }
                 else { 
@@ -85,7 +85,7 @@ void worker(Queue& q, int tid, int num_ops, Workload workload, std::barrier<>& s
             int e = 0, d = 0;
             for (int i = 0; i < (int)ops.size(); ++i) {
                 if (ops[i] == 0) { 
-                    q.enqueue(10, tid); 
+                    q.enqueue(i, tid); 
                     e++; 
                 }
                 else { 
@@ -107,9 +107,9 @@ void worker(Queue& q, int tid, int num_ops, Workload workload, std::barrier<>& s
                     q.enqueue(i, tid); 
                     e++; }
                 else { 
-                   q.dequeue(&value, tid);
-                 
-                    
+                    while (!q.dequeue(&value, tid)) {
+                        std::this_thread::yield(); 
+                    }
                     d++;
                 }
             }

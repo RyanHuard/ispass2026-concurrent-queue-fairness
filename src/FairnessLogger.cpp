@@ -1,37 +1,8 @@
-
-#include "FairnessLogger.hpp"
-
-FairnessLogger::FairnessLogger()
-  : enabled(3, true) {}
-
-void FairnessLogger::enable(FairnessMetric metric) {
-  enabled[static_cast<size_t>(metric)] = true;
-}
-
-void FairnessLogger::disable(FairnessMetric metric) {
-  enabled[static_cast<size_t>(metric)] = false;
-}
-
-bool FairnessLogger::is_enabled(FairnessMetric metric) {
-  return enabled[static_cast<size_t>(metric)];
-}
-
-void FairnessLogger::log_enqueue(double call_ts, double in_ts) {
-  std::lock_guard<std::mutex> lock(mtx);
-  records.push_back(Record{call_ts, in_ts, 0});
-}
-
-/*inline void FairnessLogger::log_dequeue(double call_ts, double in_ts, double deq_ts) {
-  std::lock_guard<std::mutex> lock(mtx);
-  records.emplace_back(Record{call_ts, in_ts, deq_ts});
-  }*/
-
-std::vector<Record> FairnessLogger::get_records() { return records; }
-
 #include <cmath>
 #include <numeric>
 #include <algorithm>
 
+#include "FairnessLogger.hpp"
 
 
 // Fenwick (Binary Indexed) Tree for prefix counts
@@ -49,7 +20,7 @@ OvertakeDepthStats compute_overtake_metrics(
     OvertakeDepthStats res;
     if (records.empty()) return res;
 
-        // Build (e1,e2), skipping e1==0 (e.g., in_ts==0)
+    // Build (e1,e2), skipping e1==0 (e.g., in_ts==0)
     std::vector<std::pair<uint64_t,uint64_t>> ts_pairs;
     ts_pairs.reserve(records.size());
     for (const auto& rec : records) {

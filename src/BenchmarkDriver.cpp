@@ -7,13 +7,17 @@
 #include <unordered_map>
 #include <tuple>
 #include <ostream>
+#include <barrier>
 
 #include "msqueue.hpp"
 #include "fcqueue.hpp"
 #include "scqueue.hpp"
+#include "lcrqueue.hpp"
 #include "args.hpp"
 #include "Workloads.hpp"
 #include "FairnessLogger.hpp"
+
+
 
 using bench::Options;
 using bench::parse_args;
@@ -25,13 +29,11 @@ int main(int argc, char *argv[]) {
   using namespace std::chrono;
   const int num_ops = opts.ops; // each thread does this many ops      default = 10,000
   const int trials = opts.trials; // trials per thread count           default = 10
-  const int max_threads = opts.max_threads; //                       default = 32
+  const int max_threads = opts.max_threads; //                         default = 32
 
   // ---- CSV header ----
   std::cout << "threads,avg_ms,"
-               "ins_mean_all,ins_mean_ovt,ins_max,ins_count_avg,ins_pct_avg,"
-               "deq_mean_all,deq_mean_ovt,deq_max,deq_count_avg,deq_pct_avg,"
-               "e2e_mean_all,e2e_mean_ovt,e2e_max,e2e_count_avg,e2e_pct_avg\n";
+               "ins_mean_all,ins_mean_ovt,ins_max,ins_count_avg,ins_pct_avg\n";
 
   for (int num_threads = 1; num_threads <= max_threads; ++num_threads) {
     // accumulators for measurements
@@ -40,24 +42,17 @@ int main(int argc, char *argv[]) {
     size_t total_insertion_count = 0;
     size_t max_insertion_depth = 0;
 
-    double total_dequeue_mean_all_elements = 0.0, total_dequeue_mean_overtaken_elements = 0.0, total_dequeue_pct = 0.0;
-    size_t total_dequeue_count = 0;
-    size_t max_dequeue_depth = 0;
-
-    double total_end2end_mean_all_elements = 0.0, total_end2end_mean_overtaken_elements = 0.0, total_end2end_pct = 0.0;
-    size_t total_end2end_count = 0;
-    size_t max_end2end_depth = 0;
-
 
     // common practice is to ignore the first trial or two because of hardware warmup
     for (int trial = 0; trial < trials + 2; trial++) {
      //MSQueue<int> q;
      //FlatCombiningQueue<int> q(num_threads);
-      SySQueue<int> q(num_threads);
+     //SySQueue q(num_threads);
+     LCRQ<int> q;
+  
 
       auto start = high_resolution_clock::now();
 
-      #include <barrier>
       std::barrier sync(num_threads);
       auto worker_thread = [&](int tid) {
         Workload workload;
@@ -74,57 +69,43 @@ int main(int argc, char *argv[]) {
 
       auto end = high_resolution_clock::now();
       auto duration = duration_cast<milliseconds>(end - start).count();
+      
 
       // ignore the first 2 trials
       if (trial < 2) continue;
 
       total_time += duration;
 
+    // size_t in_ts_zero = 0, deq_before_in = 0;
+    // for (auto& rec : q.records) {
+    //     uint64_t call_ts = std::get<0>(rec);
+    //     uint64_t in_ts   = std::get<1>(rec);
+    //     uint64_t deq_ts  = std::get<2>(rec);
+    //     if (in_ts == 0) ++in_ts_zero;
+    //     if (deq_ts < in_ts) ++deq_before_in;
+    // }
+    // std::cerr << "in_ts_zero=" << in_ts_zero
+    //           << " deq_before_in=" << deq_before_in
+    //           << " records=" << q.records.size() << "\n";
 
-    //  after threads join, before you aggregate metrics:
-size_t in_ts_zero = 0, deq_before_in = 0;
-for (auto& rec : q.records) {
-    uint64_t call_ts = std::get<0>(rec);
-    uint64_t in_ts   = std::get<1>(rec);
-    uint64_t deq_ts  = std::get<2>(rec);
-    if (in_ts == 0) ++in_ts_zero;
-    if (deq_ts < in_ts) ++deq_before_in;
-}
-std::cerr << "in_ts_zero=" << in_ts_zero
-          << " deq_before_in=" << deq_before_in
-          << " records=" << q.records.size() << "\n";
-
-      
+          
       
       
        // Fairness stats for this trial
       auto& records = q.records;  
+      
       // removes the prefill elements
       records.erase(records.begin(), records.begin() + std::min<size_t>(200 * num_threads, records.size())); 
 
 
       auto ins = insertion_fairness(records);
-      auto deq = service_fairness(records);
-      auto e2e = end_to_end_fairness(records);
-
-
+      
       total_insertion_mean_all_elements += ins.mean_all_elements;
       total_insertion_mean_overtaken_elements += ins.mean_overtaken_elements;
       total_insertion_pct  += ins.pct;
       total_insertion_count += ins.count;
       max_insertion_depth = std::max(max_insertion_depth, ins.max_depth);
-
-      total_dequeue_mean_all_elements += deq.mean_all_elements;
-      total_dequeue_mean_overtaken_elements += e2e.mean_overtaken_elements;
-      total_dequeue_pct  += deq.pct;
-      total_dequeue_count += deq.count;
-      max_dequeue_depth = std::max(max_dequeue_depth, deq.max_depth);
-
-      total_end2end_mean_all_elements += e2e.mean_all_elements;
-      total_end2end_mean_overtaken_elements += e2e.mean_overtaken_elements;
-      total_end2end_pct  += e2e.pct;
-      total_end2end_count += e2e.count;
-      max_end2end_depth = std::max(max_end2end_depth, e2e.max_depth);
+    
      }
 
     // averages across trials
@@ -135,24 +116,11 @@ std::cerr << "in_ts_zero=" << in_ts_zero
     double ins_pct_avg         = total_insertion_pct / trials;
     double ins_count_avg       = static_cast<double>(total_insertion_count) / trials;
 
-    double deq_mean_all_elements_avg        = total_dequeue_mean_all_elements / trials;
-    double deq_mean_overtaken_elements_avg = total_dequeue_mean_overtaken_elements / trials;
-    double deq_pct_avg         = total_dequeue_pct / trials;
-    double deq_count_avg       = static_cast<double>(total_dequeue_count) / trials;
-
-    double e2e_mean_all_elements_avg        = total_end2end_mean_all_elements / trials;
-    double e2e_mean_overtaken_elements_avg = total_end2end_mean_overtaken_elements / trials;
-    double e2e_pct_avg         = total_end2end_pct / trials;
-    double e2e_count_avg       = static_cast<double>(total_end2end_count) / trials;
-
     // This should go to a CSV
     std::cout << std::fixed << std::setprecision(3)
               << num_threads << ','
               << avg_ms << ','
-              << ins_mean_all_elements_avg << ',' << ins_mean_overtaken_elements_avg << ',' << max_insertion_depth << ',' << ins_count_avg << ',' << ins_pct_avg << ','
-              << deq_mean_all_elements_avg << ',' << deq_mean_overtaken_elements_avg << ',' << max_dequeue_depth   << ',' << deq_count_avg << ',' << deq_pct_avg << ','
-              << e2e_mean_all_elements_avg << ',' << e2e_mean_overtaken_elements_avg << ',' << max_end2end_depth << ',' << e2e_count_avg << ',' << e2e_pct_avg
-              << '\n';
+              << ins_mean_all_elements_avg << ',' << ins_mean_overtaken_elements_avg << ',' << max_insertion_depth << ',' << ins_count_avg << ',' << ins_pct_avg << '\n';
 
     fprintf(stderr, "Threads=%d complete.\n", num_threads);
   }

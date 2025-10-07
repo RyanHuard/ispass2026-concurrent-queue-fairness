@@ -61,24 +61,14 @@ OvertakeDepthStats compute_overtake_metrics(
   EventTimestamp, EventTimestamp // the events being measured
 );
 
-// Wrappers
-inline OvertakeDepthStats insertion_fairness(
-    const auto& records)
-{ return compute_overtake_metrics(records, EventTimestamp::EnqueueCall, EventTimestamp::EnqueueInsert); }
-
-inline OvertakeDepthStats service_fairness(
-    const auto& records)
-{ return compute_overtake_metrics(records, EventTimestamp::EnqueueInsert, EventTimestamp::Dequeue); }
-
-inline OvertakeDepthStats end_to_end_fairness(
-    const auto& records)
-{ return compute_overtake_metrics(records, EventTimestamp::EnqueueCall, EventTimestamp::Dequeue); }
+inline OvertakeDepthStats insertion_fairness(const auto& records) { 
+    return compute_overtake_metrics(records, EventTimestamp::EnqueueCall, EventTimestamp::EnqueueInsert); 
+  }
 
 
 #include <immintrin.h> 
 #include <x86intrin.h>
 static inline uint64_t now() {
-    _mm_lfence(); //
     unsigned aux;
     uint64_t ts = __rdtscp(&aux);  
     _mm_lfence(); 
