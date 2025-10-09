@@ -9,11 +9,7 @@
 // Based on "Fast Concurrent Queues for x86 Processors" by Morrison & Afek
 
 template<typename T>
-class LCRQ {
-public:
-    // Public instrumentation: records of (enqueue_ts, call_ts, dequeue_ts)
-    std::vector<std::tuple<uint64_t, uint64_t, uint64_t>> records;
-    
+class LCRQ {   
 private:
     std::mutex record_mutex;
     static constexpr int RING_SIZE = 1024;  // Must be power of 2
@@ -33,12 +29,13 @@ private:
     struct TimestampedItem {
         T value;
 
-        uint64_t call_ts;  
-        uint64_t in_ts;    
-        uint64_t deq_ts;
+        uint64_t enq_inv_ts;
+        uint64_t enq_lin_ts;
+        uint64_t deq_inv_ts;
+        uint64_t deq_lin_ts;
         
-        TimestampedItem(T&& val, uint64_t call_time)
-            : value(std::move(val)), call_ts(call_time), in_ts(0), deq_ts(0) {}
+        TimestampedItem(T&& val, uint64_t enq_inv_ts)
+            : value(std::move(val)), enq_inv_ts(enq_inv_ts), enq_lin_ts(0), deq_inv_ts(0), deq_lin_ts(0) {}
     };
 
     // Single entry in the ring buffer
@@ -115,14 +112,13 @@ private:
                     // Slot is ready, try to store our item
                     uintptr_t expected = EMPTY;
                     
-                    uint64_t in_ts = now();
                     if (entry.val.compare_exchange_strong(
                             expected,
                             make_entry(item, VALID),
                             std::memory_order_release,
                             std::memory_order_relaxed)) {
                         
-                        item->in_ts = in_ts;
+                        item->enq_lin_ts = now();
                         return 1;  // Successful enqueue
                     }
                     // CAS failed, someone else got it
@@ -169,9 +165,12 @@ private:
                             EMPTY,
                             std::memory_order_release,
                             std::memory_order_relaxed)) {
+
                         // Update idx to allow reuse
+                        TimestampedItem* ptr = get_ptr(val);
+                        ptr->deq_lin_ts = now();
                         entry.idx.store(head + RING_SIZE, std::memory_order_release);
-                        return get_ptr(val);
+                        return ptr;
                     }
                     continue;  // CAS failed, retry
                 }
@@ -204,18 +203,15 @@ private:
     }
 
 public:
+    std::vector<std::tuple<uint64_t, uint64_t, uint64_t, uint64_t>> records;
+
     LCRQ() {
         RingNode* initial = new RingNode();
         head_ring.store(initial, std::memory_order_relaxed);
         tail_ring.store(initial, std::memory_order_relaxed);
-        
-        // Pre-allocate space for records to avoid reallocation during benchmarking
-        // Adjust this based on expected number of operations
-        records.reserve(1000000);
     }
     
     ~LCRQ() {
-        // Clean up all rings
         RingNode* curr = head_ring.load(std::memory_order_relaxed);
         while (curr) {
             RingNode* next = curr->next.load(std::memory_order_relaxed);
@@ -224,19 +220,17 @@ public:
         }
     }
     
-    // Enqueue an item
     void enqueue(T item, int tid) {
-        uint64_t call_ts = now();
-
+        uint64_t enq_inv_ts = now();
         
-        TimestampedItem* ptr = new TimestampedItem(std::move(item), call_ts);
+        TimestampedItem* ptr = new TimestampedItem(std::move(item), enq_inv_ts);
         
         while (true) {
             RingNode* ring = tail_ring.load(std::memory_order_acquire);
             int result = ring_enqueue(ring, ptr);
             
             if (result == 1) {
-                return;  // Success!
+                return; 
             }
             
             if (result == 0) {
@@ -265,26 +259,21 @@ public:
                     tail_ring.store(next, std::memory_order_release);
                 }
             }
-            
-            // result == -1, just retry
         }
     }
     
-   // Dequeue an item
     bool dequeue(T* item, int tid) {
+        uint64_t deq_inv_ts = now();
+
         while (true) {
             RingNode* ring = head_ring.load(std::memory_order_acquire);
             auto* item_ptr = ring_dequeue(ring);
 
             if (item_ptr) {
-                // Record dequeue timestamp
-                item_ptr->deq_ts = now();
-
-                // Thread-safe logging
-                {
-                    std::lock_guard<std::mutex> lock(record_mutex);
-                    records.emplace_back(item_ptr->call_ts, item_ptr->in_ts, item_ptr->deq_ts);
-                }
+                item_ptr->deq_inv_ts = deq_inv_ts;
+                std::lock_guard<std::mutex> lock(record_mutex);
+                records.emplace_back(item_ptr->call_ts, item_ptr->in_ts, item_ptr->deq_ts);
+                
 
                 // Move value into caller-provided pointer
                 *item = std::move(item_ptr->value);

@@ -50,7 +50,6 @@ public:
     MSPointer<T> dummy_pointer(dummy_node, 0);
     head.store(dummy_pointer);
     tail.store(dummy_pointer);
-    records.reserve(165000);
   }
 
   ~MSQueue() {
@@ -129,7 +128,7 @@ public:
 
             std::lock_guard<std::mutex> lock(mtx);
             records.emplace_back(enq_inv_ts, enq_lin_ts, deq_inv_ts, deq_lin_ts);
-            
+
             break;
           }
         }
