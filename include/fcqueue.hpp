@@ -14,33 +14,35 @@ using namespace std;
 
 enum class Opcode : uint8_t { Done = 0, Enqueue = 1, Dequeue = 2 };
 
-// Node carried through the queue; holds per-element timestamps until pop.
 template <typename T>
 struct FCNode {
     T        value{};
-    uint64_t call_ts{0};  // set at enqueue() call
-    uint64_t in_ts{0};    // set at enqueue LP (push)
-    uint64_t deq_ts{0};   // set at dequeue LP (pop)
+
+    uint64_t enq_inv_ts;
+    uint64_t enq_lin_ts;
+    uint64_t deq_inv_ts;
+    uint64_t deq_lin_ts;
 };
 
 template <typename T>
 struct alignas(64) Operation {
     std::atomic<Opcode> opcode{Opcode::Done};
-    FCNode<T>           node{};   // payload/result for this thread
+    FCNode<T>           node{};  
 };
 
 template <typename T>
 class FlatCombiningQueue {
 public:
-    std::vector<std::tuple<uint64_t, uint64_t, uint64_t>> records;
+    std::vector<std::tuple<uint64_t, uint64_t, uint64_t, uint64_t>> records;
 
     explicit FlatCombiningQueue(size_t num_threads)
         : operations_(num_threads) {}
 
     bool enqueue(const T& item, int tid) {
-        uint64_t call_ts = now();
+        uint64_t enq_inv_ts = now();
+
         auto& slot = operations_[tid];
-        slot.node.call_ts = call_ts;
+        slot.node.enq_inv_ts = enq_inv_ts;
         slot.node.value   = item;
         slot.node.in_ts   = 0;
         slot.node.deq_ts  = 0;
@@ -53,13 +55,15 @@ public:
     }
 
     bool dequeue(T* out, int tid) {
+        uint64_t deq_inv_ts = now();
+
         auto& slot = operations_[tid];
         slot.node = {}; 
         slot.opcode.store(Opcode::Dequeue, std::memory_order_release);
 
         while (true) {
             if (lock_.try_lock()) { 
-                scan_combine_apply(); 
+                scan_combine_apply(deq_inv_ts); 
                 lock_.unlock(); 
                 break; 
             }
@@ -71,14 +75,16 @@ public:
     }
 
 private:
-    void scan_combine_apply() {
+    void scan_combine_apply(uint64_t deq_inv_ts = 0) {
         for (size_t i = 0; i < operations_.size(); ++i) {
             auto& slot = operations_[i];
             Opcode code = slot.opcode.load(std::memory_order_acquire);
 
             if (code == Opcode::Enqueue) {
                 FCNode<T> n = slot.node;
-                n.in_ts = now(); // node becomes visible here
+
+                n.enq_lin_ts = now(); // node becomes visible here
+
                 q_.push(n);
                 slot.opcode.store(Opcode::Done, std::memory_order_release);
                 slot.node = {};
@@ -87,8 +93,10 @@ private:
                 if (!q_.empty()) {
                     FCNode<T> n = q_.front(); 
                     q_.pop();
-                    n.deq_ts = now(); 
-                    records.emplace_back(n.call_ts, n.in_ts, n.deq_ts);
+
+                    n.deq_lin_ts = now(); 
+
+                    records.emplace_back(n.enq_inv_ts, n.enq_lin_ts, deq_inv_ts, n.deq_lin_ts);
 
                     slot.node.value = n.value;
                 } else {
