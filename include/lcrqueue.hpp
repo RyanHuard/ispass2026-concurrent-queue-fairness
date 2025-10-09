@@ -270,9 +270,8 @@ public:
             auto* item_ptr = ring_dequeue(ring);
 
             if (item_ptr) {
-                item_ptr->deq_inv_ts = deq_inv_ts;
                 std::lock_guard<std::mutex> lock(record_mutex);
-                records.emplace_back(item_ptr->call_ts, item_ptr->in_ts, item_ptr->deq_ts);
+                records.emplace_back(item_ptr->enq_inv_ts, item_ptr->enq_lin_ts, deq_inv_ts, item_ptr->deq_lin_ts);
                 
 
                 // Move value into caller-provided pointer

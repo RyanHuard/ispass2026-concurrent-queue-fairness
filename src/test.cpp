@@ -218,7 +218,7 @@
 // #include <algorithm>
 
 
-// struct OvertakeDepthStats {
+// struct OvertakeMetrics {
 //     double mean_all_elements = 0.0;   // avg overtake depth among all items
 //     double mean_overtaken_elements = 0.0; // avg overtake depth among items that got overtaken
 //     size_t max_depth = 0;// max depth of an overtake
@@ -234,10 +234,10 @@
 // };
 
 
-// OvertakeDepthStats compute_overtake_metrics(
+// OvertakeMetrics compute_overtake_metrics(
 //     const std::vector<std::tuple<uint64_t, uint64_t, uint64_t>>& records)
 // {
-//     OvertakeDepthStats res;
+//     OvertakeMetrics res;
 //     if (records.empty()) return res;
 
 //     // Build (e1,e2), skipping e1==0 (e.g., in_ts==0)

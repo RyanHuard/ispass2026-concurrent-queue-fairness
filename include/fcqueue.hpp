@@ -44,8 +44,6 @@ public:
         auto& slot = operations_[tid];
         slot.node.enq_inv_ts = enq_inv_ts;
         slot.node.value   = item;
-        slot.node.in_ts   = 0;
-        slot.node.deq_ts  = 0;
         slot.opcode.store(Opcode::Enqueue, std::memory_order_release);
 
         while (true) {
@@ -83,8 +81,8 @@ private:
             if (code == Opcode::Enqueue) {
                 FCNode<T> n = slot.node;
 
-                n.enq_lin_ts = now(); // node becomes visible here
-
+                n.enq_lin_ts = now(); 
+                
                 q_.push(n);
                 slot.opcode.store(Opcode::Done, std::memory_order_release);
                 slot.node = {};

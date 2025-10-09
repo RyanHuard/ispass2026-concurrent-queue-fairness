@@ -1,7 +1,6 @@
 #pragma once
 
 #include <atomic>
-#include "FairnessMetrics.hpp"
 #include "FairnessLogger.hpp"
 
 

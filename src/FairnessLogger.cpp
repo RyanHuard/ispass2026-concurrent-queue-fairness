@@ -13,11 +13,11 @@ struct Fenwick {
     int sum_prefix(int idx) const { int s = 0; for (; idx > 0; idx -= idx & -idx) s += bit[idx]; return s; }
 };
 
-OvertakeDepthStats compute_overtake_metrics(
-    const std::vector<std::tuple<uint64_t, uint64_t, uint64_t>>& records,
+OvertakeMetrics compute_overtake_metrics(
+    const std::vector<std::tuple<uint64_t, uint64_t, uint64_t, uint64_t>>& records,
     EventTimestamp event1, EventTimestamp event2)
 {
-    OvertakeDepthStats res;
+    OvertakeMetrics res;
     if (records.empty()) return res;
 
     // Build (e1,e2), skipping e1==0 (e.g., in_ts==0)

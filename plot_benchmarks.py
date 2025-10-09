@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Triptych plots for insertion fairness metrics.
+Triptych plots for enqueue/dequeue fairness metrics.
 
 Reads all CSVs from ./results and groups them by workload keyword:
   - enqueueheavy
@@ -16,11 +16,19 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator
 
-INS_METRICS = [
-    ("ins_mean_all", "Mean Depth (all)"),
-    ("ins_mean_ovt", "Mean Depth (overtaken)"),
-    ("ins_max",      "Max Overtake Depth"),
-    ("ins_pct_avg",  "Overtaken %"),
+# Updated metric sets
+ENQ_METRICS = [
+    ("enq_mean_all", "Mean Depth (all)"),
+    ("enq_mean_ovt", "Mean Depth (overtaken)"),
+    ("enq_max",      "Max Overtake Depth"),
+    ("enq_pct_avg",  "Overtaken %"),
+]
+
+DEQ_METRICS = [
+    ("deq_mean_all", "Mean Depth (all)"),
+    ("deq_mean_ovt", "Mean Depth (overtaken)"),
+    ("deq_max",      "Max Overtake Depth"),
+    ("deq_pct_avg",  "Overtaken %"),
 ]
 
 REQUIRED_BASE = ["threads"]
@@ -84,15 +92,16 @@ def group_by_workload(dfs):
                 if k in ns:
                     bucket = k
                     break
-            if bucket: break
+            if bucket:
+                break
         if not bucket:
             print(f"[warn] Could not detect workload for '{path}'. Skipping.", file=sys.stderr)
             continue
         groups[bucket]["series"].append((label, df, path))
     return groups
 
-def plot_triptychs(out_dir, groups, logy=False, xstep=4):
-    for col, ylabel in INS_METRICS:
+def plot_triptychs(out_dir, groups, metrics, prefix, logy=False, xstep=4):
+    for col, ylabel in metrics:
         any_has = any(
             any(col in df.columns for _, df, _ in g["series"])
             for g in groups.values()
@@ -107,7 +116,8 @@ def plot_triptychs(out_dir, groups, logy=False, xstep=4):
             ax.set_title(pretty)
             ax.set_xlabel("Threads")
             ax.xaxis.set_major_locator(MultipleLocator(xstep))
-            if logy or col.endswith("ma"): ax.set_yscale("log")
+            if logy or col.endswith("max"):
+                ax.set_yscale("log")
             if not g["series"]:
                 ax.text(0.5, 0.5, "No data", ha="center", va="center", transform=ax.transAxes)
                 ax.grid(True, linestyle="--", alpha=0.2)
@@ -123,24 +133,32 @@ def plot_triptychs(out_dir, groups, logy=False, xstep=4):
             h, l = ax.get_legend_handles_labels()
             for hh, ll in zip(h, l):
                 if ll not in labels:
-                    handles.append(hh); labels.append(ll)
+                    handles.append(hh)
+                    labels.append(ll)
         if handles:
             fig.legend(handles, labels, loc="upper center", bbox_to_anchor=(0.5, 1.05), ncol=max(1, len(labels)))
             fig.subplots_adjust(top=0.88, wspace=0.30)
         else:
             fig.subplots_adjust(top=0.88, wspace=0.25)
 
-        out_path = os.path.join(out_dir, f"{col}_by_workload.png")
+        col_short = col.replace(f"{prefix}_", "")
+        out_path = os.path.join(out_dir, f"{prefix}_{col_short}_by_workload.png")
+
         savefig(fig, out_path)
 
 def main():
     dfs = load_all_csvs("./results")
     out_dir = os.path.join("./results", "graphs")
     groups = group_by_workload(dfs)
-    if not any(any(col in df.columns for col, _ in INS_METRICS) for _, df, _ in sum([g["series"] for g in groups.values()], [])):
-        print("[error] No required ins_* metrics found in any CSV.", file=sys.stderr)
+
+    # Check presence of at least one metric group
+    if not any(any(col in df.columns for col, _ in ENQ_METRICS + DEQ_METRICS)
+               for _, df, _ in sum([g["series"] for g in groups.values()], [])):
+        print("[error] No required enq_* or deq_* metrics found in any CSV.", file=sys.stderr)
         sys.exit(1)
-    plot_triptychs(out_dir, groups, logy=False, xstep=4)
+
+    plot_triptychs(out_dir, groups, ENQ_METRICS, prefix="enq", logy=False, xstep=4)
+    plot_triptychs(out_dir, groups, DEQ_METRICS, prefix="deq", logy=False, xstep=4)
 
 if __name__ == "__main__":
     main()

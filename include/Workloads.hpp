@@ -45,6 +45,7 @@ void worker(Queue& q, int tid, int num_ops, Workload workload, std::barrier<>& s
     int prefill = 200;
     double ratio; // used for queue draining (ratio of enq:num_ops)
     int value;
+
     for (int i = 0; i < prefill; i++) {
         q.enqueue(i, tid);
     }
@@ -118,6 +119,7 @@ void worker(Queue& q, int tid, int num_ops, Workload workload, std::barrier<>& s
     }
 
     sync.arrive_and_wait();
+
 
     for (int i = 0; i < ratio * num_ops + prefill; i++) {
         q.dequeue(&value, tid);

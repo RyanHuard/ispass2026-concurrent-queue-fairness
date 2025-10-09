@@ -5,16 +5,15 @@
 #include <unordered_map>
 #include <ostream>
 
-#include "FairnessMetrics.hpp"
-
 
 enum class EventTimestamp {
-  EnqueueCall = 0,   // when enqueue() is called
-  EnqueueInsert = 1, // when item enters the queue
-  Dequeue = 3  // when item is dequeued
+  EnqueueInv = 0,   // when enqueue() is called
+  EnqueueLin = 1, // when item enters the queue
+  DequeueInv = 2,  // when item is dequeued
+  DequeueLin = 3
 };
 
-struct OvertakeDepthStats {
+struct OvertakeMetrics {
     double mean_all_elements = 0.0;   // avg overtake depth among all items
     double mean_overtaken_elements = 0.0; // avg overtake depth among items that got overtaken
     size_t max_depth = 0;// max depth of an overtake
@@ -22,7 +21,7 @@ struct OvertakeDepthStats {
     double pct = 0.0;    // 100 * count_overtaken / n
 };
 
-inline std::ostream& operator<<(std::ostream& os, const OvertakeDepthStats& s) {
+inline std::ostream& operator<<(std::ostream& os, const OvertakeMetrics& s) {
     os << "mean_all=" << s.mean_all_elements
        << ", mean_ovt=" << s.mean_overtaken_elements
        << ", max=" << s.max_depth
@@ -37,33 +36,18 @@ struct Record {
   double deq_ts;
 };
 
-class FairnessLogger {
-public:
-  FairnessLogger();
-  
-  void enable(FairnessMetric metric);
-  void disable(FairnessMetric metric);
-  bool is_enabled(FairnessMetric metric);
-  
-  void log_enqueue(double call_ts, double in_ts);
-  void log_dequeue(double call_ts, double in_ts, double deq_ts);
-
-  std::vector<Record> get_records();
-  
-private:
-  mutable std::mutex mtx;
-  std::vector<Record> records;
-  std::vector<bool> enabled;
-};
-
-OvertakeDepthStats compute_overtake_metrics(
-  const std::vector<std::tuple<uint64_t, uint64_t, uint64_t>>&,
+OvertakeMetrics compute_overtake_metrics(
+  const std::vector<std::tuple<uint64_t, uint64_t, uint64_t, uint64_t>>&,
   EventTimestamp, EventTimestamp // the events being measured
 );
 
-inline OvertakeDepthStats insertion_fairness(const auto& records) { 
-    return compute_overtake_metrics(records, EventTimestamp::EnqueueCall, EventTimestamp::EnqueueInsert); 
-  }
+inline OvertakeMetrics enqueue_fairness(const auto& records) { 
+    return compute_overtake_metrics(records, EventTimestamp::EnqueueInv, EventTimestamp::EnqueueLin); 
+}
+
+inline OvertakeMetrics dequeue_fairness(const auto& records) { 
+    return compute_overtake_metrics(records, EventTimestamp::DequeueInv, EventTimestamp::DequeueLin); 
+}
 
 
 #include <immintrin.h> 
@@ -77,13 +61,14 @@ static inline uint64_t now() {
 
 
 static inline uint64_t get_field(
-    const std::tuple<uint64_t, uint64_t, uint64_t>& tup,
+    const std::tuple<uint64_t, uint64_t, uint64_t, uint64_t>& tup,
     EventTimestamp f)
 {
     switch (f) {
-        case EventTimestamp::EnqueueCall:   return std::get<0>(tup);
-        case EventTimestamp::EnqueueInsert: return std::get<1>(tup);
-        case EventTimestamp::Dequeue:       return std::get<2>(tup);
+        case EventTimestamp::EnqueueInv: return std::get<0>(tup);
+        case EventTimestamp::EnqueueLin: return std::get<1>(tup);
+        case EventTimestamp::DequeueInv: return std::get<2>(tup);
+        case EventTimestamp::DequeueLin: return std::get<3>(tup);
     }
     return 0.0;
 }
