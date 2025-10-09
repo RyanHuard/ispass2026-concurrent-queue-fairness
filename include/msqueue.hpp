@@ -27,9 +27,10 @@ struct MSNode {
   T value;
   std::atomic<MSPointer<T>> next;
 
-  uint64_t in_ts;
-  uint64_t call_ts;
-  uint64_t deq_ts;
+  uint64_t enq_inv_ts;
+  uint64_t enq_lin_ts;
+  uint64_t deq_inv_ts;
+  uint64_t deq_lin_ts;
 
   MSNode() : next(MSPointer<T>()) {}
   MSNode(const T& v) : value(v), next(MSPointer<T>()) {}
@@ -42,7 +43,8 @@ private:
   std::atomic<MSPointer<T>> tail;
 
 public:
-  std::vector<std::tuple<uint64_t, uint64_t, uint64_t>> records;
+  std::vector<std::tuple<uint64_t, uint64_t, uint64_t, uint64_t>> records;
+
   MSQueue() {
     auto* dummy_node = new MSNode<T>();
     MSPointer<T> dummy_pointer(dummy_node, 0);
@@ -62,9 +64,10 @@ public:
   }
 
   void enqueue(const T value, int tid) {
-    uint64_t call_ts = now();
+    uint64_t enq_inv_ts = now();
+
     auto* node = new MSNode<T>(value);
-    node->call_ts = call_ts;
+    node->enq_inv_ts = enq_inv_ts;
 
     MSPointer<T> cur_tail;
     MSPointer<T> next;
@@ -77,7 +80,7 @@ public:
 	      if (next.ptr == nullptr) {
 	        MSPointer new_element(node, next.count + 1);
 	        if (cur_tail.ptr->next.compare_exchange_weak(next, new_element, std::memory_order_acq_rel, std::memory_order_acquire)) {
-            node->in_ts = now();
+            node->enq_lin_ts = now();
 	          break;
 	        }
 	      }
@@ -93,6 +96,8 @@ public:
   }
 
   bool dequeue(T* value, int tid) {
+    uint64_t deq_inv_ts = now();
+
     MSPointer<T> cur_head;
     MSPointer<T> cur_tail;
     MSPointer<T> next;
@@ -116,13 +121,15 @@ public:
 
           MSPointer<T> new_head(next.ptr, cur_head.count + 1);
 
-          uint64_t call_ts = next.ptr->call_ts;
-          uint64_t in_ts = next.ptr->in_ts;
+          uint64_t enq_inv_ts = next.ptr->enq_inv_ts;
+          uint64_t enq_lin_ts = next.ptr->enq_lin_ts;
           
           if (head.compare_exchange_weak(cur_head, new_head, std::memory_order_acq_rel, std::memory_order_acquire)) {
-            uint64_t deq_ts = now();
+            uint64_t deq_lin_ts = now();
+
             std::lock_guard<std::mutex> lock(mtx);
-            records.emplace_back(call_ts, in_ts, deq_ts);
+            records.emplace_back(enq_inv_ts, enq_lin_ts, deq_inv_ts, deq_lin_ts);
+            
             break;
           }
         }
