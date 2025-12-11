@@ -18,7 +18,7 @@ namespace bench {
 
     static void usage(const char* prog) {
         std::cerr << "Usage: " << prog
-                  << " [--queue=ms|fc|sys|all] [--trials=N] [--ops=N]\n";
+                  << " [--queue=ms|fc|lcrq|lprq|faa|all] [--trials=N] [--ops=N] [--threads=N]\n";
     }   
 
     Options parse_args(int argc, char *argv[]) {
@@ -29,7 +29,7 @@ namespace bench {
 
             if (arg.rfind("--queue=", 0) == 0) {
                 std::string val = arg.substr(8);
-                if (val == "all") opts.queues = {"ms", "fc", "lcrq"};
+                if (val == "all") opts.queues = {"ms", "fc", "lcrq", "lprq", "faa"};
                 else opts.queues = split_csv(val);
             } 
             else if (arg.rfind("--trials=", 0) == 0) {

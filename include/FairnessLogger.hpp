@@ -4,7 +4,7 @@
 #include <mutex>
 #include <unordered_map>
 #include <ostream>
-
+#include <papi.h>
 
 enum class EventTimestamp {
   EnqueueInv = 0,   // when enqueue() is called
@@ -50,13 +50,22 @@ inline OvertakeMetrics dequeue_fairness(const auto& records) {
 }
 
 
+
+
 #include <immintrin.h> 
 #include <x86intrin.h>
+
 static inline uint64_t now() {
     unsigned aux;
     uint64_t ts = __rdtscp(&aux);  
     _mm_lfence(); 
     return ts;
+}
+
+inline void wait(uint64_t ns = 1000) {
+  using clock = std::chrono::steady_clock;
+  const auto start = clock::now();
+  while (std::chrono::duration_cast<std::chrono::nanoseconds>(clock::now() - start).count() < ns) {}
 }
 
 
@@ -72,5 +81,4 @@ static inline uint64_t get_field(
     }
     return 0.0;
 }
-
 

@@ -1,5 +1,5 @@
 CXX := g++
-CXXFLAGS := -std=c++20 -Iinclude
+CXXFLAGS := -std=c++20 -Iinclude -I/usr/include
 
 SRC_DIR := src
 INCLUDE_DIR := include
@@ -15,8 +15,7 @@ all: $(TARGET)
 
 $(TARGET): $(OBJS)
 	@mkdir -p $(BIN_DIR)
-	$(CXX) $(CXXFLAGS) $(OBJS) -o $(TARGET) -latomic -pthread
-
+	$(CXX) $(CXXFLAGS) $(OBJS) -o $(TARGET) -latomic -pthread -lpapi
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp
 	@mkdir -p $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c $< -o $@

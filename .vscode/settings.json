@@ -79,7 +79,8 @@
         "variant": "cpp",
         "map": "cpp",
         "fstream": "cpp",
-        "barrier": "cpp"
+        "barrier": "cpp",
+        "cinttypes": "cpp"
     },
     "C_Cpp.dimInactiveRegions": false
 }

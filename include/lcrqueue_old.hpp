@@ -159,6 +159,7 @@ private:
                 uintptr_t val = entry.val.load(std::memory_order_acquire);
                 
                 if (get_state(val) == VALID) {
+                    uint64_t deq_lin_ts = now();
                     // Try to take the item
                     if (entry.val.compare_exchange_strong(
                             val,
@@ -168,7 +169,7 @@ private:
 
                         // Update idx to allow reuse
                         TimestampedItem* ptr = get_ptr(val);
-                        ptr->deq_lin_ts = now();
+                        ptr->deq_lin_ts = deq_lin_ts;
                         entry.idx.store(head + RING_SIZE, std::memory_order_release);
                         return ptr;
                     }
@@ -204,6 +205,7 @@ private:
 
 public:
     std::vector<std::tuple<uint64_t, uint64_t, uint64_t, uint64_t>> records;
+    std::atomic<int> enq_retries{0};
 
     LCRQ() {
         RingNode* initial = new RingNode();
