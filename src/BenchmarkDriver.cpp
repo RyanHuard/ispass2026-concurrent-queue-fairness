@@ -14,6 +14,7 @@
 #include <chrono>
 #include <cstring>
 #include <numeric>
+#include <filesystem>
 
 #include <papi.h>
 #include "CacheMisses.hpp"
@@ -92,6 +93,8 @@ void run_benchmark(const Options &opts,
     const int num_ops = opts.ops;
     const int trials = opts.trials;
     const int max_threads = opts.max_threads;
+
+    std::filesystem::create_directories("results");
 
     std::string filename = qname + "_" + workload_name + ".csv";
     std::ofstream csv("results/" + filename);
