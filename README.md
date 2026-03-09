@@ -1,4 +1,4 @@
-# Concurrent FIFO Queue Fairness Benchmark
+# Linearizability Alone Is Not Enough for Strict FIFO Semantics
 
 Artifact for "Linearizability Alone Is Not Enough for Strict FIFO Semantics".
 Benchmarks the fairness behavior of four concurrent FIFO queue implementations
