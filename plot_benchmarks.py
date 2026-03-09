@@ -13,22 +13,19 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator
 
-# =======================
-# METRICS
-# =======================
 
 ENQ_METRICS = [
-    ("enq_mean_all", "Mean Depth (all)"),
-    ("enq_mean_ovt", "Mean Overtake Depth (overtaken)"),
-    ("enq_count",    "Enqueue Count"),
-    ("enq_pct",      "Overtake Percentage"),
+    ("enq_mean_all", "Mean Overtake Depth"),
+    ("enq_mean_ovt", "Mean Overtake Depth (Overtaken)"),
+    ("enq_count",    "Operation Count"),
+    ("enq_pct",      "Overtake Percentage (%)"),
 ]
 
 DEQ_METRICS = [
-    ("deq_mean_all", "Mean Depth (all)"),
-    ("deq_mean_ovt", "Mean Overtake Depth (overtaken)"),
-    ("deq_count",    "Dequeue Count"),
-    ("deq_pct",      "Overtake Percentage"),
+    ("deq_mean_all", "Mean Overtake Depth"),
+    ("deq_mean_ovt", "Mean Overtake Depth (Overtaken)"),
+    ("deq_count",    "Operation Count"),
+    ("deq_pct",      "Overtake Percentage (%)"),
 ]
 
 TIME_METRICS = [
@@ -137,15 +134,16 @@ def group_by_workload(dfs):
 # =======================
 
 style_map = {
-    "LPRQ": {"color": "tab:red",    "marker": "D"},
-    "MS":   {"color": "tab:blue",   "marker": "o"},
-    "LCRQ": {"color": "tab:orange", "marker": "s"},
-    "FC":   {"color": "tab:green",  "marker": "^"},
-    "FAA":  {"color": "tab:purple", "marker": "x"},
+    "LPRQ": {"color": "tab:red",    "marker": "D", "linestyle": "-"},
+    "MS":   {"color": "tab:blue",   "marker": "o", "linestyle": "--"},
+    "LCRQ": {"color": "tab:orange", "marker": "s", "linestyle": ":"},
+    "FC":   {"color": "tab:green",  "marker": "^", "linestyle": "-."},
+    "FAA":  {"color": "tab:purple", "marker": "x", "linestyle": (0, (3,1,1,1))},
 }
 
 fallback_colors = ["tab:purple", "tab:brown", "tab:pink", "tab:gray"]
 fallback_markers = ["v", "p", "X", "*"]
+fallback_linestyles = ["-", "--", ":", "-."]
 
 def pick_style(label, fallback_i):
     key = _norm(label).upper()
@@ -155,8 +153,26 @@ def pick_style(label, fallback_i):
     style = {
         "color": fallback_colors[fallback_i % len(fallback_colors)],
         "marker": fallback_markers[fallback_i % len(fallback_markers)],
+        "linestyle": fallback_linestyles[fallback_i % len(fallback_linestyles)],
     }
+       
     return style, fallback_i + 1
+
+
+def compute_y_range(groups, col):
+    ymin, ymax = float("inf"), float("-inf")
+    for wk, g in groups.items():
+        for _, df, _ in g["series"]:
+            if col not in df.columns:
+                continue
+            vals = df[col].dropna()
+            if len(vals) == 0:
+                continue
+            ymin = min(ymin, vals.min())
+            ymax = max(ymax, vals.max())
+    if ymin == float("inf"):
+        return None
+    return ymin, ymax
 
 # =======================
 # TRIPTYCH HELPERS
@@ -169,7 +185,7 @@ def set_left_yaxis_only(ax, i, ylabel):
         ax.set_ylabel("")
 
 # =======================
-# TRIPTYCH PLOT FUNCTIONS
+# TRIPTYCH PLOT FUNCTIONS (UPDATED)
 # =======================
 
 def plot_metric_triptych_per_metric(out_dir, groups, metrics, prefix, logy=False, xstep=4):
@@ -183,8 +199,19 @@ def plot_metric_triptych_per_metric(out_dir, groups, metrics, prefix, logy=False
         return
 
     for col, ylabel in present_metrics:
-        fig, axes = plt.subplots(1, len(WORKLOAD_KEYS), figsize=(len(WORKLOAD_KEYS)*4.2,3.6), squeeze=False)
-        fig.suptitle(ylabel, fontsize=12)
+        # === NEW: unified y-range ===
+        yrange = compute_y_range(groups, col)
+        if yrange:
+            ylo, yhi = yrange
+        else:
+            ylo, yhi = None, None
+        if col == "deq_mean_ovt":
+            ylo, yhi = 0, 15
+
+        fig, axes = plt.subplots(1, len(WORKLOAD_KEYS),
+                                 figsize=(len(WORKLOAD_KEYS)*4.2,3.6),
+                                 squeeze=False)
+       # fig.suptitle(ylabel, fontsize=12)
 
         for i, (wk, pretty) in enumerate(WORKLOAD_KEYS):
             ax = axes[0][i]
@@ -197,12 +224,17 @@ def plot_metric_triptych_per_metric(out_dir, groups, metrics, prefix, logy=False
             ax.xaxis.set_major_locator(MultipleLocator(xstep))
             ax.set_xlim(0,20)
 
+            if ylo is not None:
+                pad = (yhi - ylo) * 0.05
+                ax.set_ylim(ylo - pad, yhi + pad)
+
             fallback_i = 0
             for impl_label, df, _ in g["series"]:
                 if col not in df.columns:
                     continue
+
                 style, fallback_i = pick_style(impl_label, fallback_i)
-                stats = df.groupby("threads")[col].agg(["mean","std"]).reset_index()
+                stats = df.groupby("threads")[col].agg(["mean", "std"]).reset_index()
 
                 ax.errorbar(
                     stats["threads"], stats["mean"],
@@ -210,8 +242,9 @@ def plot_metric_triptych_per_metric(out_dir, groups, metrics, prefix, logy=False
                     label=legend_label(impl_label),
                     color=style["color"],
                     marker=style["marker"],
+                       linestyle=style["linestyle"],
                     markersize=4,
-                    linewidth=1,
+                    linewidth=1.8,
                     capsize=3,
                 )
 
@@ -227,8 +260,13 @@ def plot_l1_missrate_triptych(out_dir, groups):
     if not any(any(col in df.columns for _, df, _ in g["series"]) for g in groups.values()):
         return
 
-    fig, axes = plt.subplots(1, len(WORKLOAD_KEYS), figsize=(len(WORKLOAD_KEYS)*4.2,3.6), squeeze=False)
-    fig.suptitle("L1 Miss Rate", fontsize=12)
+    yrange = compute_y_range(groups, col)
+    ylo, yhi = yrange if yrange else (None, None)
+
+    fig, axes = plt.subplots(1, len(WORKLOAD_KEYS),
+                             figsize=(len(WORKLOAD_KEYS)*4.2,3.6),
+                             squeeze=False)
+    #fig.suptitle("L1 Miss Rate", fontsize=12)
 
     for i, (wk, pretty) in enumerate(WORKLOAD_KEYS):
         g = groups[wk]
@@ -241,10 +279,15 @@ def plot_l1_missrate_triptych(out_dir, groups):
         ax.xaxis.set_major_locator(MultipleLocator(4))
         ax.set_xlim(0,20)
 
+        if ylo is not None:
+            pad = (yhi - ylo) * 0.05
+            ax.set_ylim(ylo - pad, yhi + pad)
+
         fallback_i = 0
         for impl_label, df, _ in g["series"]:
             if col not in df.columns:
                 continue
+
             style, fallback_i = pick_style(impl_label, fallback_i)
             stats = df.groupby("threads")[col].agg(["mean","std"]).reset_index()
 
@@ -267,7 +310,7 @@ def plot_l1_missrate_triptych(out_dir, groups):
 
 
 # =======================
-# COMBINED FAIRNESS TRIPTYCH
+# UPDATED: Combined Fairness Triptych w/ unified y-axis
 # =======================
 
 def plot_combined_overtake_triptych(out_dir, groups, xstep=4):
@@ -283,7 +326,22 @@ def plot_combined_overtake_triptych(out_dir, groups, xstep=4):
         print("[warn] no datasets have both enqueue+dequeue mean ovt")
         return
 
-    fig, axes = plt.subplots(1, len(WORKLOAD_KEYS), figsize=(len(WORKLOAD_KEYS)*4.2, 3.6), squeeze=False)
+    # Build synthetic combined column to compute global range
+    ymin, ymax = float("inf"), float("-inf")
+    for wk, g in groups.items():
+        for _, df, _ in g["series"]:
+            if col_enq not in df.columns or col_deq not in df.columns:
+                continue
+            vals = (df[col_enq] + df[col_deq]).dropna()
+            if len(vals):
+                ymin = min(ymin, vals.min())
+                ymax = max(ymax, vals.max())
+    if ymin == float("inf"):
+        ymin, ymax = None, None
+
+    fig, axes = plt.subplots(1, len(WORKLOAD_KEYS),
+                             figsize=(len(WORKLOAD_KEYS)*4.2, 3.6),
+                             squeeze=False)
     fig.suptitle("Combined Mean Overtake Depth", fontsize=12)
 
     for i, (wk, pretty) in enumerate(WORKLOAD_KEYS):
@@ -296,6 +354,10 @@ def plot_combined_overtake_triptych(out_dir, groups, xstep=4):
 
         ax.xaxis.set_major_locator(MultipleLocator(xstep))
         ax.set_xlim(0,20)
+
+        if ymin is not None:
+            pad = (ymax - ymin) * 0.05
+            ax.set_ylim(ymin - pad, ymax + pad)
 
         fallback_i = 0
         for impl_label, df, _ in g["series"]:
@@ -324,6 +386,7 @@ def plot_combined_overtake_triptych(out_dir, groups, xstep=4):
 
     savefig(fig, os.path.join(out_dir, "combined_mean_ovt_triptych.png"))
     plt.close(fig)
+
 
 # =======================
 # MAIN

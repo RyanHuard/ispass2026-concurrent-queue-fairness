@@ -29,7 +29,7 @@ namespace bench {
 
             if (arg.rfind("--queue=", 0) == 0) {
                 std::string val = arg.substr(8);
-                if (val == "all") opts.queues = {"ms", "fc", "lcrq", "lprq", "faa"};
+                if (val == "all") opts.queues = {"ms", "fc", "lprq", "faa"};
                 else opts.queues = split_csv(val);
             } 
             else if (arg.rfind("--trials=", 0) == 0) {
@@ -52,7 +52,7 @@ namespace bench {
                 usage(argv[0]); std::exit(1);
             }
         }
-        if (opts.queues.empty()) opts.queues = {"ms", "fc", "lcrq"};
+        if (opts.queues.empty()) opts.queues = {"ms", "fc", "lprq", "faa"};
         return opts;
     }
 }

@@ -104,7 +104,6 @@ public:
         while (true) {
             Node* ltail = hp.protect(kHpTail, tail, tid);
             const int idx = ltail->enqidx.fetch_add(1);
-        //   if (tid == 0) std::this_thread::sleep_for(1ms);
             if (idx > BUFFER_SIZE-1) { // This node is full
                 if (ltail != tail.load()) continue;
                 Node* lnext = ltail->next.load();

@@ -6,9 +6,6 @@
 #include <tuple>
 #include "FairnessLogger.hpp"
 
-// -----------------------------------------------------------
-// 1. Thread Local Storage Helper
-// -----------------------------------------------------------
 using MSLogRecord = std::tuple<uint64_t, uint64_t, uint64_t, uint64_t>;
 
 struct MSThreadLogStorage {
@@ -19,12 +16,21 @@ struct MSThreadLogStorage {
     }
 };
 
-// Static thread_local ensures every thread gets its own private instance
+
 static thread_local MSThreadLogStorage ms_tls_log;
 
-// -----------------------------------------------------------
-// 2. Queue Definitions
-// -----------------------------------------------------------
+inline void pi_delay(int iters = 50000) {
+    volatile double pi = 0.0;   
+    double sign = 1.0;
+
+    for (int i = 0; i < iters; i++) {
+        pi += sign / (2.0 * i + 1.0);
+        sign = -sign;
+    }
+
+
+    volatile double result = pi * 4.0;
+}
 
 template <typename T>
 struct MSNode;
@@ -61,7 +67,6 @@ private:
   std::atomic<MSPointer<T>> head;
   std::atomic<MSPointer<T>> tail;
   
-  // Mutex specifically for the FINAL merge of logs (not used in hot path)
   std::mutex records_mutex;
 
 public:
@@ -89,6 +94,7 @@ public:
 
     auto* node = new MSNode<T>(value);
     node->enq_inv_ts = enq_inv_ts;
+    
 
     MSPointer<T> cur_tail;
     MSPointer<T> next;
@@ -96,6 +102,7 @@ public:
     while (true) {
       cur_tail = tail.load(std::memory_order_acquire);
       next = cur_tail.ptr->next.load(std::memory_order_acquire);
+     // pi_delay(50000);
 
       if (cur_tail == tail.load()) {
         if (next.ptr == nullptr) {
@@ -119,7 +126,7 @@ public:
   }
 
   bool dequeue(T* value, int tid) {
-    uint64_t deq_inv_ts = now(); // Capture Dequeue Invocation
+    uint64_t deq_inv_ts = now(); 
 
     MSPointer<T> cur_head;
     MSPointer<T> cur_tail;
@@ -144,8 +151,6 @@ public:
 
           MSPointer<T> new_head(next.ptr, cur_head.count + 1);
 
-          // Read timestamps from the node BEFORE we potentially lose access to it
-          // (Though in MSQueue we hold a pointer to it via 'next', so it's safe until delete)
           uint64_t enq_inv_ts = next.ptr->enq_inv_ts;
           uint64_t enq_lin_ts = next.ptr->enq_lin_ts;
           
@@ -153,9 +158,7 @@ public:
             
             uint64_t deq_lin_ts = now();
 
-            // -------------------------------------------------------
-            // FAST THREAD-LOCAL LOGGING (No Global Lock)
-            // -------------------------------------------------------
+    
             ms_tls_log.events.emplace_back(
                 enq_inv_ts, 
                 enq_lin_ts, 
@@ -169,15 +172,11 @@ public:
       }
     } 
     
-    // Note: In a production MS Queue, this delete is unsafe (ABA problem / Hazard Pointers required).
-    // For this benchmark harness, we assume it's acceptable or handled elsewhere.
+
     delete cur_head.ptr;
     return true;
   }
 
-  // -------------------------------------------------------
-  // Merges thread local logs into the global list
-  // -------------------------------------------------------
   void commit_thread_logs() {
       if (ms_tls_log.events.empty()) return;
 
@@ -188,7 +187,6 @@ public:
           ms_tls_log.events.end()
       );
       
-      // Clear to free memory
       ms_tls_log.events.clear();
   }
 };

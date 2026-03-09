@@ -1,5 +1,5 @@
 CXX := g++
-CXXFLAGS := -std=c++20 -Iinclude -I/usr/include
+CXXFLAGS := -std=c++20 -Iinclude -I/usr/include 
 
 SRC_DIR := src
 INCLUDE_DIR := include
@@ -24,4 +24,6 @@ clean:
 	rm -rf $(BUILD_DIR) $(BIN_DIR)
 
 plot:
-	python plot_benchmarks.py --out ./results/graphs $(addprefix --csv ,$(wildcard results/*.csv))
+	python plot_benchmarks.py --out ./results/graphs \
+	$(addprefix --csv ,$(wildcard results/*.csv))
+	python3 plot_l1_correlation.py

@@ -96,7 +96,7 @@ public:
         int try_close = 0;
         while (true) {
             uint64_t tailticket = Base::tail.fetch_add(1);
-         //   if (tid == 0) std::this_thread::sleep_for(1ms);
+
             if (Base::isClosed(tailticket)) return false;
 
             Cell& cell = array[remap[tailticket % RING_SIZE]];

@@ -15,15 +15,15 @@
 #include <cstring>
 #include <numeric>
 
-#include <papi.h>         
+#include <papi.h>
 #include "CacheMisses.hpp"
-
 
 #include "msqueue.hpp"
 #include "fcqueue.hpp"
 #include "LCRQueue.hpp"
 #include "LPRQueue.hpp"
 #include "FAAArrayQueue.hpp"
+// #include "SCQueue.hpp"
 #include "args.hpp"
 #include "Workloads.hpp"
 #include "FairnessLogger.hpp"
@@ -31,61 +31,73 @@
 using bench::Options;
 using bench::parse_args;
 
-
 template <typename T, typename = void>
-struct has_commit_logs : std::false_type {};
+struct has_commit_logs : std::false_type
+{
+};
 
 template <typename T>
 struct has_commit_logs<T, std::void_t<decltype(std::declval<T>().commit_thread_logs())>>
-    : std::true_type {};
+    : std::true_type
+{
+};
 
 template <typename Q>
-void try_commit_logs(Q& q) {
-    if constexpr (has_commit_logs<Q>::value) {
+void try_commit_logs(Q &q)
+{
+    if constexpr (has_commit_logs<Q>::value)
+    {
         q.commit_thread_logs();
     }
 }
 
 template <typename T, typename = void>
-struct has_records : std::false_type {};
+struct has_records : std::false_type
+{
+};
 
 template <typename T>
 struct has_records<T, std::void_t<decltype(std::declval<T>().records)>>
-    : std::true_type {};
+    : std::true_type
+{
+};
 
-// --- Queue Factory ---
+
 
 template <typename Q>
 Q make_queue(int /*num_threads*/) { return Q{}; }
 
 template <>
-FlatCombiningQueue<int> make_queue<FlatCombiningQueue<int>>(int num_threads) {
+FlatCombiningQueue<int> make_queue<FlatCombiningQueue<int>>(int num_threads)
+{
     return FlatCombiningQueue<int>(num_threads);
 }
 
 template <>
 FAAArrayQueueAdapter<int, false, 1024, true>
-make_queue<FAAArrayQueueAdapter<int, false, 1024, true>>(int num_threads) {
+make_queue<FAAArrayQueueAdapter<int, false, 1024, true>>(int num_threads)
+{
     return FAAArrayQueueAdapter<int, false, 1024, true>(num_threads);
 }
 
 // ---------------------------------------------------------
 
 template <typename Q>
-void run_benchmark(const Options& opts,
-                   const std::string& qname,
-                   const std::string& workload_name)
+void run_benchmark(const Options &opts,
+                   const std::string &qname,
+                   const std::string &workload_name)
 {
     using namespace std::chrono;
 
-    const int num_ops     = opts.ops;
-    const int trials      = opts.trials;
+    const int num_ops = opts.ops;
+    const int trials = opts.trials;
     const int max_threads = opts.max_threads;
 
     std::string filename = qname + "_" + workload_name + ".csv";
     std::ofstream csv("results/" + filename);
 
-    if (!csv.is_open()) {
+    if (!csv.is_open())
+    {
         std::cerr << "Failed to open output file: " << filename << "\n";
         return;
     }
@@ -97,8 +109,10 @@ void run_benchmark(const Options& opts,
            "deq_mean_all,deq_mean_ovt,deq_max,deq_count,deq_pct,"
            "l1_missrate\n";
 
-    for (int num_threads = 1; num_threads <= max_threads; ++num_threads) {
-        for (int trial = 0; trial < trials; ++trial) {
+    for (int num_threads = 1; num_threads <= max_threads; ++num_threads)
+    {
+        for (int trial = 0; trial < trials; ++trial)
+        {
 
             // Store the calculated miss rates
             std::vector<double> thread_miss_rates(num_threads, 0);
@@ -106,9 +120,11 @@ void run_benchmark(const Options& opts,
             Q q = make_queue<Q>(num_threads);
             std::barrier sync(num_threads);
 
-            auto worker_thread = [&](int tid) {
+            auto worker_thread = [&](int tid)
+            {
                 // Initialize PAPI for this thread
-                if (PAPI_thread_init(pthread_self) != PAPI_OK) {
+                if (PAPI_thread_init(pthread_self) != PAPI_OK)
+                {
                 }
 
                 CacheMissCounters l1;
@@ -120,13 +136,15 @@ void run_benchmark(const Options& opts,
                     workload = Workload::DequeueHeavy;
                 else if (workload_name == "pair")
                     workload = Workload::EnqueueDequeuePair;
-                else {
+                else
+                {
                     std::cerr << "Unknown workload: " << workload_name << "\n";
                     workload = Workload::EnqueueDequeuePair;
                 }
 
                 // Pre-fill for pair workload
-                if (workload_name == "pair" && tid == 0) {
+                if (workload_name == "pair" && tid == 0)
+                {
                     for (int i = 0; i < 5000; i++)
                         q.enqueue(i, tid);
                 }
@@ -141,7 +159,8 @@ void run_benchmark(const Options& opts,
 
                 // Calculate local accesses based on workload
                 long long local_accesses = num_ops;
-                if (workload_name == "pair") local_accesses *= 2;
+                if (workload_name == "pair")
+                    local_accesses *= 2;
 
                 thread_miss_rates[tid] = l1.get_l1_cache_miss_rate(local_accesses);
             };
@@ -153,7 +172,7 @@ void run_benchmark(const Options& opts,
             for (int t = 0; t < num_threads; t++)
                 threads.emplace_back(worker_thread, t);
 
-            for (auto& thread : threads)
+            for (auto &thread : threads)
                 thread.join();
 
             auto end = high_resolution_clock::now();
@@ -164,30 +183,33 @@ void run_benchmark(const Options& opts,
             double deq_mean = 0, deq_ovt = 0, deq_max = 0, deq_cnt = 0, deq_pct = 0;
             size_t records_size = 0;
 
-            if constexpr (has_records<Q>::value) {
-                auto& records = q.records;
+            if constexpr (has_records<Q>::value)
+            {
+                auto &records = q.records;
                 records_size = records.size();
 
-                if (!records.empty()) {
+                if (!records.empty())
+                {
                     size_t cutoff = std::min<size_t>(200 * num_threads, records_size);
                     records.erase(records.begin(), records.begin() + cutoff);
                 }
 
-                if (!records.empty()) {
+                if (!records.empty())
+                {
                     auto enq = enqueue_fairness(records);
                     auto deq = dequeue_fairness(records);
 
                     enq_mean = enq.mean_all_elements;
-                    enq_ovt  = enq.mean_overtaken_elements;
-                    enq_max  = enq.max_depth;
-                    enq_cnt  = enq.count;
-                    enq_pct  = enq.pct;
+                    enq_ovt = enq.mean_overtaken_elements;
+                    enq_max = enq.max_depth;
+                    enq_cnt = enq.count;
+                    enq_pct = enq.pct;
 
                     deq_mean = deq.mean_all_elements;
-                    deq_ovt  = deq.mean_overtaken_elements;
-                    deq_max  = deq.max_depth;
-                    deq_cnt  = deq.count;
-                    deq_pct  = deq.pct;
+                    deq_ovt = deq.mean_overtaken_elements;
+                    deq_max = deq.max_depth;
+                    deq_cnt = deq.count;
+                    deq_pct = deq.pct;
                 }
             }
 
@@ -195,9 +217,9 @@ void run_benchmark(const Options& opts,
                     "Threads=%d Trial=%d done.\n",
                     num_threads, trial);
 
-  
             double avg_miss_rate = 0.0;
-            if (num_threads > 0) {
+            if (num_threads > 0)
+            {
                 double total_rate = std::accumulate(thread_miss_rates.begin(), thread_miss_rates.end(), 0.0);
                 avg_miss_rate = total_rate / num_threads;
             }
@@ -217,7 +239,7 @@ void run_benchmark(const Options& opts,
                 << deq_max << ","
                 << deq_cnt << ","
                 << deq_pct << ","
-                << avg_miss_rate 
+                << avg_miss_rate
                 << "\n";
         }
     }
@@ -225,14 +247,16 @@ void run_benchmark(const Options& opts,
     csv.close();
 }
 
-
-int main(int argc, char *argv[]) {
-    if (PAPI_library_init(PAPI_VER_CURRENT) != PAPI_VER_CURRENT) {
+int main(int argc, char *argv[])
+{
+    if (PAPI_library_init(PAPI_VER_CURRENT) != PAPI_VER_CURRENT)
+    {
         std::cerr << "FATAL: PAPI library initialization failed.\n";
         exit(1);
     }
 
-    if (PAPI_thread_init(pthread_self) != PAPI_OK) {
+    if (PAPI_thread_init(pthread_self) != PAPI_OK)
+    {
         std::cerr << "FATAL: PAPI thread init failed.\n";
         exit(1);
     }
@@ -242,24 +266,28 @@ int main(int argc, char *argv[]) {
     const std::vector<std::string> workloads =
         {"enqueueheavy", "pair", "dequeueheavy"};
 
-    for (const auto& qname : opts.queues) {
-        for (const auto& workload : workloads) {
-            if (qname == "ms") {
+    for (const auto &qname : opts.queues)
+    {
+        for (const auto &workload : workloads)
+        {
+            if (qname == "ms")
+            {
                 run_benchmark<MSQueue<int>>(opts, "ms", workload);
             }
-            else if (qname == "fc") {
+            else if (qname == "fc")
+            {
                 run_benchmark<FlatCombiningQueue<int>>(opts, "fc", workload);
             }
-            else if (qname == "lcrq") {
-                run_benchmark<CRQueueAdapter<int, false, 1024, true>>(opts, "lcrq", workload);
-            }
-            else if (qname == "lprq") {
+            else if (qname == "lprq")
+            {
                 run_benchmark<PRQueueAdapter<int, false, 1024, true>>(opts, "lprq", workload);
             }
-            else if (qname == "faa") {
+            else if (qname == "faa")
+            {
                 run_benchmark<FAAArrayQueueAdapter<int, false, 1024, true>>(opts, "faa", workload);
             }
-            else {
+            else
+            {
                 std::cerr << "Unknown queue type: " << qname << "\n";
             }
 
