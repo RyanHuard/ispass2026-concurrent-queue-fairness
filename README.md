@@ -17,8 +17,8 @@ cache miss rate.
 
 1. Clone the repository:
 ```bash
-   git clone https://github.com/TODO/TODO.git
-   cd TODO
+   git clone https://github.com/RyanHuard/ispass2026-concurrent-queue-fairness.git
+   cd ispass2026-concurrent-queue-fairness
 ```
 
 2. Install dependencies:
