@@ -52,4 +52,5 @@ build/
 bin/
 results/
 *.o
-*.csv
+*.csv.vscode/
+.#*
