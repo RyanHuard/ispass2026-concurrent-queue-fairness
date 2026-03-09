@@ -24,6 +24,6 @@ clean:
 	rm -rf $(BUILD_DIR) $(BIN_DIR)
 
 plot:
-	python plot_benchmarks.py --out ./results/graphs \
+	python3 plot_benchmarks.py --out ./results/graphs \
 	$(addprefix --csv ,$(wildcard results/*.csv))
 	python3 plot_l1_correlation.py
