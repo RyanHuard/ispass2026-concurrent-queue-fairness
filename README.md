@@ -8,7 +8,7 @@ cache miss rate.
 ## Requirements
 
 - Ubuntu 22.04+
-- C++20 (gcc)
+- C++20 (gcc)w to 
 - Python 3.8+
 - libpapi-dev
 - linux-tools-common, linux-tools-generic (for `perf`)
